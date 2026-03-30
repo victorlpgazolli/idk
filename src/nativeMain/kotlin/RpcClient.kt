@@ -29,9 +29,30 @@ data class JsonRpcRequestListClasses(
 )
 
 @Serializable
+data class InspectClassParams(
+    val className: String
+)
+
+@Serializable
+data class JsonRpcRequestInspectClass(
+    val jsonrpc: String = "2.0",
+    val method: String,
+    val params: InspectClassParams,
+    val id: Int = 1
+)
+
+@Serializable
 data class JsonRpcResponse(
     val jsonrpc: String,
     val result: List<String>? = null,
+    val error: JsonRpcError? = null,
+    val id: Int? = null
+)
+
+@Serializable
+data class JsonRpcInspectResponse(
+    val jsonrpc: String,
+    val result: ClassInspectionResult? = null,
     val error: JsonRpcError? = null,
     val id: Int? = null
 )
@@ -81,6 +102,37 @@ object RpcClient {
                 val rpcResponse = response.body<JsonRpcResponse>()
                 if (rpcResponse.error != null) {
                     Pair(null, rpcResponse.error.message)
+                } else {
+                    Pair(rpcResponse.result, null)
+                }
+            } else {
+                Pair(null, "RPC HTTP Error: ${response.status.value}")
+            }
+        } catch (e: Exception) {
+            Pair(null, "RPC Internal Error: ${e.message}")
+        }
+    }
+
+    suspend fun inspectClass(className: String): Pair<ClassInspectionResult?, String?> {
+        return try {
+            val requestBody = JsonRpcRequestInspectClass(
+                method = "inspectClass",
+                params = InspectClassParams(className)
+            )
+
+            val response: HttpResponse = withTimeoutOrNull(5000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return Pair(null, "RPC Timeout (5s)")
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcInspectResponse>()
+                if (rpcResponse.error != null) {
+                    Pair(null, rpcResponse.error.message)
+                } else if (rpcResponse.result == null) {
+                    Pair(null, "RPC Result is null")
                 } else {
                     Pair(rpcResponse.result, null)
                 }

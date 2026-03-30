@@ -22,6 +22,12 @@ object TmuxManager {
         return exitCode == 0
     }
 
+    fun appendInspectWindow(className: String): Boolean {
+        if (!checkTmux()) return false
+        val exitCode = system("tmux split-window -h ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_inspect_class $className 2>/dev/null")
+        return exitCode == 0
+    }
+
     fun attachSession(name: String) {
         if (!checkTmux()) return
         Terminal.disableRawMode()

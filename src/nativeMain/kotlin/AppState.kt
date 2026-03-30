@@ -1,11 +1,19 @@
 import kotlin.concurrent.AtomicReference
+import kotlinx.serialization.Serializable
 
 enum class AppMode {
     DEFAULT,
-    DEBUG_CLASS_FILTER
+    DEBUG_CLASS_FILTER,
+    DEBUG_INSPECT_CLASS
 }
 
 data class Command(val name: String, val description: String)
+
+@Serializable
+data class ClassInspectionResult(
+    val attributes: List<String>,
+    val methods: List<String>
+)
 
 data class AppState(
     var inputBuffer: String = "",
@@ -26,5 +34,12 @@ data class AppState(
     var displayedClasses: List<String> = emptyList(),
     var selectedClassIndex: Int = -1,
     var isFetchingClasses: Boolean = false,
-    var rpcError: String? = null
+    var rpcError: String? = null,
+    
+    // Inspect Mode additions
+    var inspectTargetClassName: String = "",
+    val sharedInspectResult: AtomicReference<ClassInspectionResult?> = AtomicReference(null),
+    var inspectAttributes: List<String> = emptyList(),
+    var inspectMethods: List<String> = emptyList(),
+    var isFetchingInspection: Boolean = false
 )

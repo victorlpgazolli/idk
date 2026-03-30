@@ -9,6 +9,8 @@ object Ansi {
     const val CURSOR_HOME = "\u001b[H"
     const val HIDE_CURSOR = "\u001b[?25l"
     const val SHOW_CURSOR = "\u001b[?25h"
+    const val SAVE_CURSOR = "\u001b7"
+    const val RESTORE_CURSOR = "\u001b8"
     const val CLEAR_LINE = "\u001b[K"
 
     fun moveTo(row: Int, col: Int): String = "\u001b[${row};${col}H"
@@ -50,19 +52,23 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.HIDE_CURSOR)
 
         renderLogo(buf)
-        renderWelcome(buf)
-        
         if (state.mode == AppMode.DEFAULT) {
+            renderWelcome(buf)
             renderHistory(buf, state)
-        }
-        
-        renderCtrlCWarning(buf, state)
-        renderInputBox(buf, state, width)
-        
-        if (state.mode == AppMode.DEFAULT) {
+            renderCtrlCWarning(buf, state)
+            renderInputBox(buf, state, width)
             renderSuggestions(buf, state)
-        } else {
+            buf.append(Ansi.RESTORE_CURSOR)
+        } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+            renderWelcome(buf)
+            renderCtrlCWarning(buf, state)
+            renderInputBox(buf, state, width)
             renderClassList(buf, state)
+            buf.append(Ansi.RESTORE_CURSOR)
+        } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+            renderCtrlCWarning(buf, state)
+            renderInspectHeader(buf, state, width)
+            renderInspectClassList(buf, state)
         }
 
         buf.append(Ansi.SHOW_CURSOR)
@@ -118,18 +124,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         val placeholder = if (state.mode == AppMode.DEFAULT) "Type your command" else "Search classes..."
 
-        val inputContent = if (state.inputBuffer.isEmpty()) {
-            "${Ansi.WHITE} > ${Ansi.RESET}${Ansi.DIM}  $placeholder${Ansi.RESET}"
-        } else {
-            "${Ansi.WHITE} > ${Ansi.RESET}${Ansi.WHITE}${state.inputBuffer}${Ansi.RESET}"
-        }
-
         val visibleInputLength = if (state.inputBuffer.isEmpty()) {
             " >   $placeholder".length
         } else {
             " > ${state.inputBuffer}".length
         }
-        val padding = if (innerWidth > visibleInputLength) innerWidth - visibleInputLength else 0
+        
+        val padding = maxOf(0, innerWidth - visibleInputLength)
 
         buf.append(Ansi.DIM)
         buf.append(" ")
@@ -140,7 +141,19 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.DIM)
         buf.append(" │")
         buf.append(Ansi.RESET)
-        buf.append(inputContent)
+        buf.append("${Ansi.WHITE} > ${Ansi.RESET}")
+        
+        if (state.inputBuffer.isEmpty()) {
+            buf.append(Ansi.SAVE_CURSOR)
+            buf.append("${Ansi.DIM}  $placeholder${Ansi.RESET}")
+        } else {
+            val textBeforeCursor = state.inputBuffer.substring(0, state.cursorPosition)
+            val textAfterCursor = state.inputBuffer.substring(state.cursorPosition)
+            buf.append("${Ansi.WHITE}$textBeforeCursor")
+            buf.append(Ansi.SAVE_CURSOR)
+            buf.append("$textAfterCursor${Ansi.RESET}")
+        }
+
         buf.append(" ".repeat(padding))
         buf.append(Ansi.DIM)
         buf.append("│")
@@ -229,5 +242,74 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
              buf.append(Ansi.RESET)
              buf.append("\n")
         }
+    }
+
+    private fun renderInspectHeader(buf: StringBuilder, state: AppState, width: Int) {
+        val innerWidth = width - 2
+        val topBorder = "╭" + "─".repeat(innerWidth) + "╮"
+        val bottomBorder = "╰" + "─".repeat(innerWidth) + "╯"
+
+        val title = " Inspecting: ${state.inspectTargetClassName} "
+        val padding = maxOf(0, innerWidth - title.length)
+
+        buf.append(Ansi.DIM).append(" ").append(topBorder).append(Ansi.RESET).append("\n")
+        buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
+        buf.append(K_VIOLET).append(title).append(Ansi.RESET)
+        buf.append(" ".repeat(padding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
+        buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n\n")
+    }
+
+    private fun renderInspectClassList(buf: StringBuilder, state: AppState) {
+        if (state.rpcError != null) {
+            buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
+            return
+        }
+
+        if (state.isFetchingInspection && state.inspectAttributes.isEmpty() && state.inspectMethods.isEmpty()) {
+            buf.append(Ansi.DIM).append("  Parsing class structure via Frida...").append(Ansi.RESET).append("\n")
+            return
+        }
+
+        val selectableItems = state.inspectAttributes + state.inspectMethods
+        if (selectableItems.isEmpty()) {
+            buf.append(Ansi.DIM).append("  No attributes or methods found.").append(Ansi.RESET).append("\n")
+            return
+        }
+
+        val maxItems = 20
+        var startIdx = 0
+        if (state.selectedClassIndex > maxItems / 2) {
+            startIdx = state.selectedClassIndex - maxItems / 2
+        }
+        val endIdx = minOf(selectableItems.size, startIdx + maxItems)
+
+        var previouslyInMethods = startIdx >= state.inspectAttributes.size
+        if (!previouslyInMethods && state.inspectAttributes.isNotEmpty()) {
+            buf.append("${K_PINK}    Attributes:${Ansi.RESET}\n")
+        } else if (previouslyInMethods && state.inspectMethods.isNotEmpty()) {
+            buf.append("${K_PINK}    Methods:${Ansi.RESET}\n")
+        }
+
+        for (i in startIdx until endIdx) {
+            val isMethod = i >= state.inspectAttributes.size
+            if (isMethod && !previouslyInMethods) {
+                buf.append("\n${K_PINK}    Methods:${Ansi.RESET}\n")
+                previouslyInMethods = true
+            }
+
+            val itemText = selectableItems[i]
+            val isSelected = i == state.selectedClassIndex
+            
+            if (isSelected) {
+                buf.append("${Ansi.GREEN}   >  $itemText${Ansi.RESET}\n")
+            } else {
+                buf.append("      ${DIM_GRAY}$itemText${Ansi.RESET}\n")
+            }
+        }
+
+        if (selectableItems.size > endIdx) {
+             buf.append(Ansi.DIM).append("    ... and ${selectableItems.size - endIdx} more items").append(Ansi.RESET).append("\n")
+        }
+
     }
 }

@@ -20,10 +20,17 @@ fun main(args: Array<String>) {
     CacheManager.ensureCacheDir()
 
     var initialMode = AppMode.DEFAULT
+    var inspectTarget = ""
     if (args.contains("--mode") && args.indexOf("--mode") + 1 < args.size) {
-        val modeStr = args[args.indexOf("--mode") + 1]
+        val modeIdx = args.indexOf("--mode")
+        val modeStr = args[modeIdx + 1]
         if (modeStr == "debug_class_filter") {
             initialMode = AppMode.DEBUG_CLASS_FILTER
+        } else if (modeStr == "debug_inspect_class") {
+            initialMode = AppMode.DEBUG_INSPECT_CLASS
+            if (modeIdx + 2 < args.size) {
+                inspectTarget = args[modeIdx + 2]
+            }
         }
     }
 
@@ -47,6 +54,21 @@ fun main(args: Array<String>) {
                 state.sharedFetchedClasses.value = result ?: emptyList()
                 state.sharedRpcError.value = error
                 state.isFetchingClasses = false
+            }
+        }
+    } else if (initialMode == AppMode.DEBUG_INSPECT_CLASS) {
+        state.inspectTargetClassName = inspectTarget
+        state.isFetchingInspection = true
+        scope.launch {
+            val ok = RpcClient.ping()
+            if (!ok) {
+                state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
+                state.isFetchingInspection = false
+            } else {
+                val (result, error) = RpcClient.inspectClass(inspectTarget)
+                state.sharedInspectResult.value = result
+                state.sharedRpcError.value = error
+                state.isFetchingInspection = false
             }
         }
     }
@@ -116,10 +138,18 @@ fun main(args: Array<String>) {
                             (state.selectedSuggestionIndex + 1).coerceAtMost(state.suggestions.size - 1)
                         Renderer.render(state)
                     }
-                } else {
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (state.displayedClasses.isNotEmpty()) {
                         state.selectedClassIndex =
                             (state.selectedClassIndex + 1).coerceAtMost(state.displayedClasses.size - 1)
+                        Renderer.render(state)
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                    // Inspect scrolling logic offset simulation
+                    val totalElements = state.inspectAttributes.size + state.inspectMethods.size
+                    if (totalElements > 0) {
+                        state.selectedClassIndex =
+                            (state.selectedClassIndex + 1).coerceAtMost(totalElements - 1)
                         Renderer.render(state)
                     }
                 }
@@ -132,8 +162,15 @@ fun main(args: Array<String>) {
                             (state.selectedSuggestionIndex - 1).coerceAtLeast(0)
                         Renderer.render(state)
                     }
-                } else {
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (state.displayedClasses.isNotEmpty()) {
+                        state.selectedClassIndex =
+                            (state.selectedClassIndex - 1).coerceAtLeast(0)
+                        Renderer.render(state)
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                    val totalElements = state.inspectAttributes.size + state.inspectMethods.size
+                    if (totalElements > 0) {
                         state.selectedClassIndex =
                             (state.selectedClassIndex - 1).coerceAtLeast(0)
                         Renderer.render(state)
@@ -191,9 +228,13 @@ fun main(args: Array<String>) {
                         CommandExecutor.execute(cmd, state)
                         Renderer.render(state)
                     }
-                } else {
-                    // DEBUG_CLASS_FILTER: Exit back or just end mode
-                    state.running = false // End loop for now
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+                    if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0) {
+                        val selectedClass = state.displayedClasses[state.selectedClassIndex]
+                        TmuxManager.appendInspectWindow(selectedClass)
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                    // Do nothing on enter
                 }
             }
 
@@ -248,6 +289,40 @@ fun main(args: Array<String>) {
                         state.rpcError = err
                         state.sharedRpcError.value = null
                         state.isFetchingClasses = false
+                        needsRender = true
+                    }
+                }
+
+                if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+                    val previouslyFetched = state.sharedFetchedClasses.value
+                    val previousError = state.sharedRpcError.value
+                    if (previouslyFetched != null) {
+                        state.displayedClasses = previouslyFetched
+                        state.sharedFetchedClasses.value = null
+                        if (state.selectedClassIndex >= state.displayedClasses.size) {
+                            state.selectedClassIndex = if (state.displayedClasses.isNotEmpty()) 0 else -1
+                        } else if (state.selectedClassIndex < 0 && state.displayedClasses.isNotEmpty()) {
+                            state.selectedClassIndex = 0
+                        }
+                        needsRender = true
+                    }
+                    if (previousError != null) {
+                        state.rpcError = previousError
+                        state.sharedRpcError.value = null
+                        needsRender = true
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                    val prevInspectStatus = state.sharedInspectResult.value
+                    val previousError = state.sharedRpcError.value
+                    if (prevInspectStatus != null) {
+                        state.inspectAttributes = prevInspectStatus.attributes
+                        state.inspectMethods = prevInspectStatus.methods
+                        state.sharedInspectResult.value = null
+                        needsRender = true
+                    }
+                    if (previousError != null) {
+                        state.rpcError = previousError
+                        state.sharedRpcError.value = null
                         needsRender = true
                     }
                 }

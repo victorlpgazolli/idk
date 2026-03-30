@@ -131,6 +131,10 @@ class FridaBridge:
                 offset=params.get("offset", 0),
                 limit=params.get("limit", 200)
             )
+        elif method == "inspectClass":
+            self.get_session()
+            className = params.get("className", "")
+            return self.script.exports_sync.inspectclass(className)
         else:
             raise Exception(f"Method {method} not found")
 
