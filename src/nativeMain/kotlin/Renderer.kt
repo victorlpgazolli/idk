@@ -224,7 +224,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val p2 = className.substring(end)
                 
                 val baseColor = if (isSelected) Ansi.GREEN else Ansi.DIM
-                "$baseColor$p1${Ansi.RED}$match$baseColor$p2"
+                "$baseColor$p1${if (isSelected) Ansi.GREEN else Ansi.RED}$match$baseColor$p2"
             } else {
                 val baseColor = if (isSelected) Ansi.GREEN else Ansi.DIM
                 "$baseColor$className"
