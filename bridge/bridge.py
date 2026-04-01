@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import time
+import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import frida
 import json
 import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
+import subprocess
+from jdwp_frida import run_jdwp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,11 +31,7 @@ class RpcHandler(BaseHTTPRequestHandler):
                 method = req.get('method')
                 params = req.get('params', {})
                 result = self.server.bridge.handle_rpc(method, params)
-                res = {
-                    "jsonrpc": "2.0",
-                    "result": result,
-                    "id": req.get("id")
-                }
+                res = {"jsonrpc": "2.0", "result": result, "id": req.get("id")}
                 try:
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
@@ -41,6 +41,7 @@ class RpcHandler(BaseHTTPRequestHandler):
                     pass
             except Exception as e:
                 logging.error(f"Error handling RPC: {e}")
+                traceback.print_exc()
                 err_res = {
                     "jsonrpc": "2.0",
                     "error": {"code": -32603, "message": str(e)},
@@ -57,7 +58,6 @@ class RpcHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    # Disable logging per request to keep console clean
     def log_message(self, format, *args):
         pass
 
@@ -86,40 +86,49 @@ class FridaBridge:
             if not front_app:
                 raise Exception("No frontmost application found on device")
             
-            # If we already have a session for the SAME PID and it's not detached
             if self.session:
                 try:
                     if not self.session.is_detached and getattr(self.session, "_pid", None) == front_app.pid:
                         return self.session
                 except:
                     pass
-            
-            # Create new session
+
             logging.info(f"Attaching to {front_app.identifier} (PID: {front_app.pid})")
             self.session = device.attach(front_app.pid)
             self.session._pid = front_app.pid
-            
-            # Compile and load script ONCE per session
+
             import os
             agent_path = os.path.join(os.path.dirname(__file__), 'agent.js')
             logging.info("Compiling Frida agent...")
             compiler = frida.Compiler()
-            
-            def on_compiler_diagnostics(diag):
-                logging.warning(f"Compiler Diagnostics: {diag}")
-                
-            compiler.on('diagnostics', on_compiler_diagnostics)
+            compiler.on('diagnostics', lambda diag: logging.warning(f"Compiler: {diag}"))
             bundle = compiler.build(agent_path)
-            
+
             self.script = self.session.create_script(bundle)
             self.script.load()
-            
+
             return self.session
 
+    def _detach_frida(self):
+        if self.session and not self.session.is_detached:
+            logging.info("Detaching Frida session...")
+            try:
+                self.session.detach()
+            except Exception as e:
+                logging.warning(f"Error detaching: {e}")
+            self.session = None
+            self.script = None
+
+    def _reattach_frida(self):
+        logging.info("Re-attaching Frida session...")
+        try:
+            self.get_session()
+            logging.info("Frida re-attached successfully")
+        except Exception as e:
+            logging.warning(f"Failed to re-attach Frida: {e}")
+
     def list_classes(self, search_param="", offset=0, limit=200):
-        self.get_session() # Ensures session and self.script are loaded
-        
-        # Call the exported JS function
+        self.get_session()
         classes = self.script.exports_sync.listclasses(search_param)
         classes.sort()
         return classes[offset:offset+limit]
@@ -131,15 +140,70 @@ class FridaBridge:
                 offset=params.get("offset", 0),
                 limit=params.get("limit", 200)
             )
+
         elif method == "inspectClass":
             self.get_session()
-            className = params.get("className", "")
-            return self.script.exports_sync.inspectclass(className)
+            return self.script.exports_sync.inspectclass(params.get("className", ""))
+
+        elif method == "jdwpExec":
+            port = params.get("port", 8700)
+
+            device = self._get_device()
+            front_app = device.get_frontmost_application()
+            if not front_app:
+                raise Exception("No frontmost application found")
+
+            pid = front_app.pid
+            package_name = front_app.identifier
+
+            self._detach_frida()
+
+            logging.info(f"Setting up adb forward tcp:{port} jdwp:{pid}")
+            r = subprocess.run(
+                ["adb", "forward", f"tcp:{port}", f"jdwp:{pid}"],
+                capture_output=True, text=True
+            )
+            if r.returncode != 0:
+                raise Exception(f"adb forward failed: {r.stderr}")
+
+            logging.info("adb forward ok, waiting for JDWP to initialize...")
+            time.sleep(1)
+
+            if params.get("loadlib"):
+                check = subprocess.run(
+                    ["adb", "shell", "ls", "/data/local/tmp/frida-gadget.so"],
+                    capture_output=True, text=True
+                )
+                if check.returncode == 0:
+                    logging.info("frida-gadget.so already on device, skipping push")
+                else:
+                    logging.info(f"Pushing {params['loadlib']}...")
+                    r = subprocess.run(
+                        ["adb", "push", params["loadlib"], "/data/local/tmp/frida-gadget.so"],
+                        capture_output=True, text=True
+                    )
+                    if r.returncode != 0:
+                        raise Exception(f"adb push failed: {r.stderr}")
+                    logging.info(f"adb push ok: {r.stdout.strip()}")
+
+            try:
+                result = run_jdwp(
+                    target=params.get("target", "127.0.0.1"),
+                    port=port,
+                    cmd=params.get("cmd"),
+                    loadlib=params.get("loadlib"),
+                    break_on=params.get("break_on", "android.os.Handler.dispatchMessage"),
+                    package_name=package_name
+                )
+                return result
+            finally:
+                self._reattach_frida()
+
         else:
             raise Exception(f"Method {method} not found")
 
 def run_server(port=8080):
-    server = HTTPServer(('127.0.0.1', port), RpcHandler)
+    server = ThreadingHTTPServer(('127.0.0.1', port), RpcHandler)
     server.bridge = FridaBridge()
     logging.info(f"Starting JSON-RPC Bridge on http://127.0.0.1:{port}...")
     try:
