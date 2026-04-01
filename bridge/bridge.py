@@ -44,7 +44,7 @@ class RpcHandler(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 err_res = {
                     "jsonrpc": "2.0",
-                    "error": {"code": -32603, "message": str(e)},
+                    "error": {"status": "unknown_error", "error_message": str(e)},
                     "id": req.get("id") if 'req' in locals() and isinstance(req, dict) else None
                 }
                 try:
