@@ -145,7 +145,7 @@ class FridaBridge:
             self.get_session()
             return self.script.exports_sync.inspectclass(params.get("className", ""))
 
-        elif method == "jdwpExec":
+        elif method == "installGadget":
             port = 8700
             target = "127.0.0.1"
 
