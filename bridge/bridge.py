@@ -146,7 +146,8 @@ class FridaBridge:
             return self.script.exports_sync.inspectclass(params.get("className", ""))
 
         elif method == "jdwpExec":
-            port = params.get("port", 8700)
+            port = 8700
+            target = "127.0.0.1"
 
             device = self._get_device()
             front_app = device.get_frontmost_application()
@@ -185,10 +186,17 @@ class FridaBridge:
                     if r.returncode != 0:
                         raise Exception(f"adb push failed: {r.stderr}")
                     logging.info(f"adb push ok: {r.stdout.strip()}")
+            else:
+                check = subprocess.run(
+                    ["adb", "shell", "ls", "/data/local/tmp/frida-gadget.so"],
+                    capture_output=True, text=True
+                )
+                if check.returncode != 0:
+                    raise Exception("frida-gadget.so not found on device and no loadlib provided")
 
             try:
                 result = run_jdwp(
-                    target=params.get("target", "127.0.0.1"),
+                    target=target,
                     port=port,
                     cmd=params.get("cmd"),
                     loadlib=params.get("loadlib"),

