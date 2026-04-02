@@ -24,7 +24,10 @@ object Renderer {
 
     private const val DIM_GRAY = "\u001b[90m"
     private const val WHITE = "\u001b[97m"
+    private const val LIGHT_GRAY = "\u001b[38;5;250m"
     private const val RESET = "\u001b[0m"
+
+    private val SPINNER_FRAMES = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     private const val LOGO = """
 ${K_MAGENTA}      ▄▄▄▄▄  ${K_MAGENTA}▄▄▄▄▄▄▄▄▄    ${K_PINK}▄▄▄▄    ▄▄▄▄ $RESET
@@ -97,7 +100,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderHistory(buf: StringBuilder, state: AppState) {
-        for (cmd in state.commandHistory) {
+        val lastDebugIndex = state.commandHistory.lastIndexOf("debug")
+        for ((index, cmd) in state.commandHistory.withIndex()) {
             buf.append(Ansi.DIM)
             buf.append(" > ")
             buf.append(Ansi.RESET)
@@ -105,6 +109,29 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             buf.append(cmd)
             buf.append(Ansi.RESET)
             buf.append("\n")
+
+            // Show gadget install status only below the LAST "debug" command
+            if (index == lastDebugIndex && state.gadgetInstallStatus != GadgetInstallStatus.IDLE && state.gadgetInstallStatus != GadgetInstallStatus.SUCCESS) {
+                renderGadgetStatus(buf, state)
+            }
+        }
+    }
+
+    private fun renderGadgetStatus(buf: StringBuilder, state: AppState) {
+        when (state.gadgetInstallStatus) {
+            GadgetInstallStatus.VALIDATING -> {
+                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+                buf.append("   $LIGHT_GRAY$frame Validating debug status$RESET\n")
+            }
+            GadgetInstallStatus.RUNNING_CHECKS -> {
+                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+                buf.append("   $LIGHT_GRAY$frame Running checks to know if debugger is up and running$RESET\n")
+            }
+            GadgetInstallStatus.ERROR -> {
+                val errorMsg = state.gadgetErrorMessage ?: "Unknown error"
+                buf.append("   ${Ansi.RED}Caught an error: $errorMsg${Ansi.RESET}\n")
+            }
+            else -> {}
         }
     }
 

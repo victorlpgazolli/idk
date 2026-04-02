@@ -42,6 +42,13 @@ data class JsonRpcRequestInspectClass(
 )
 
 @Serializable
+data class JsonRpcRequestSimple(
+    val jsonrpc: String = "2.0",
+    val method: String,
+    val id: Int = 1
+)
+
+@Serializable
 data class JsonRpcResponse(
     val jsonrpc: String,
     val result: List<String>? = null,
@@ -61,6 +68,26 @@ data class JsonRpcInspectResponse(
 data class JsonRpcError(
     val code: Int,
     val message: String
+)
+
+@Serializable
+data class InstallGadgetResult(
+    val status: String,
+    val error_message: String? = null
+)
+
+@Serializable
+data class InstallGadgetErrorDetail(
+    val status: String,
+    val error_message: String
+)
+
+@Serializable
+data class JsonRpcInstallGadgetResponse(
+    val jsonrpc: String,
+    val result: InstallGadgetResult? = null,
+    val error: InstallGadgetErrorDetail? = null,
+    val id: Int? = null
 )
 
 object RpcClient {
@@ -143,4 +170,55 @@ object RpcClient {
             Pair(null, "RPC Internal Error: ${e.message}")
         }
     }
+
+    /**
+     * Calls the installGadget RPC method.
+     * Returns Pair(status, errorMessage?).
+     * status can be: "completed", "gadget_detected", "unknown_error", etc.
+     * errorMessage is non-null when there was an error.
+     */
+    suspend fun installGadget(): Pair<String, String?> {
+        // First check if bridge server is reachable
+        val serverUp = ping()
+        if (!serverUp) {
+            return Pair("error", "Bridge server is not running")
+        }
+
+        return try {
+            val requestBody = JsonRpcRequestSimple(method = "installGadget")
+
+            val response: HttpResponse = withTimeoutOrNull(60000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return Pair("timeout", "Timeout validating debugger status")
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcInstallGadgetResponse>()
+                if (rpcResponse.result != null) {
+                    Pair(rpcResponse.result.status, rpcResponse.result.error_message)
+                } else if (rpcResponse.error != null) {
+                    Pair(rpcResponse.error.status, rpcResponse.error.error_message)
+                } else {
+                    Pair("unknown_error", "Unexpected empty response")
+                }
+            } else {
+                // HTTP 500 — bridge returns error in body
+                try {
+                    val rpcResponse = response.body<JsonRpcInstallGadgetResponse>()
+                    if (rpcResponse.error != null) {
+                        Pair(rpcResponse.error.status, rpcResponse.error.error_message)
+                    } else {
+                        Pair("unknown_error", "RPC HTTP Error: ${response.status.value}")
+                    }
+                } catch (e: Exception) {
+                    Pair("unknown_error", "RPC HTTP Error: ${response.status.value}")
+                }
+            }
+        } catch (e: Exception) {
+            Pair("error", "Bridge server is not running")
+        }
+    }
 }
+

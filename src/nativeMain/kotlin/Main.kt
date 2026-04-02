@@ -207,7 +207,7 @@ fun main(args: Array<String>) {
                             state.selectedSuggestionIndex = -1
                             state.ctrlCPressed = false
                             Renderer.render(state)
-                            CommandExecutor.execute(cmd, state)
+                            CommandExecutor.execute(cmd, state, scope)
                             Renderer.render(state)
                         } else {
                             state.inputBuffer = selected.name
@@ -225,7 +225,7 @@ fun main(args: Array<String>) {
                         state.selectedSuggestionIndex = -1
                         state.ctrlCPressed = false
                         Renderer.render(state)
-                        CommandExecutor.execute(cmd, state)
+                        CommandExecutor.execute(cmd, state, scope)
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
@@ -259,6 +259,28 @@ fun main(args: Array<String>) {
                     if (elapsed > 1500) {
                         state.ctrlCPressed = false
                         needsRender = true
+                    }
+                }
+
+                // Gadget install status polling
+                if (state.gadgetInstallStatus == GadgetInstallStatus.VALIDATING || state.gadgetInstallStatus == GadgetInstallStatus.RUNNING_CHECKS) {
+                    state.gadgetSpinnerFrame++
+                    needsRender = true
+
+                    val gadgetUpdate = state.sharedGadgetResult.value
+                    if (gadgetUpdate != null) {
+                        state.sharedGadgetResult.value = null
+                        state.gadgetInstallStatus = gadgetUpdate.first
+                        state.gadgetErrorMessage = gadgetUpdate.second
+
+                        if (gadgetUpdate.first == GadgetInstallStatus.SUCCESS) {
+                            // Reset gadget state and proceed with tmux
+                            state.gadgetInstallStatus = GadgetInstallStatus.IDLE
+                            state.gadgetErrorMessage = null
+                            Renderer.render(state)
+                            CommandExecutor.proceedWithTmux(state)
+                            needsRender = true
+                        }
                     }
                 }
 

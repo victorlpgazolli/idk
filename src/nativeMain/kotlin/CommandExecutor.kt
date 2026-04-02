@@ -6,12 +6,15 @@ import platform.posix.localtime
 import platform.posix.time
 import platform.posix.time_tVar
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+
 object CommandExecutor {
     private val charPool = ('a'..'z') + ('0'..'9')
 
-    fun execute(command: String, state: AppState) {
+    fun execute(command: String, state: AppState, scope: CoroutineScope) {
         when (command) {
-            "debug" -> handleDebug(state)
+            "debug" -> handleDebug(state, scope)
             else -> {}
         }
     }
@@ -40,7 +43,7 @@ object CommandExecutor {
         }
     }
 
-    private fun handleDebug(state: AppState) {
+    fun proceedWithTmux(state: AppState) {
         val sessionId = generateSessionId()
 
         if (!TmuxManager.createSession(sessionId)) {
@@ -56,4 +59,28 @@ object CommandExecutor {
             SessionStore.removeSession(sessionId)
         }
     }
+
+    private fun handleDebug(state: AppState, scope: CoroutineScope) {
+        // Set initial status and return immediately — async flow
+        state.gadgetInstallStatus = GadgetInstallStatus.VALIDATING
+        state.gadgetErrorMessage = null
+        state.gadgetSpinnerFrame = 0
+
+        scope.launch {
+            // Transition to RUNNING_CHECKS after ping/initial validation
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.RUNNING_CHECKS, null)
+
+            val (status, errorMessage) = RpcClient.installGadget()
+
+            when (status) {
+                "completed", "gadget_detected" -> {
+                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.SUCCESS, null)
+                }
+                else -> {
+                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, errorMessage ?: "Unknown error")
+                }
+            }
+        }
+    }
 }
+

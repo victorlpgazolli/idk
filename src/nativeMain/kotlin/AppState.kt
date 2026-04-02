@@ -7,6 +7,14 @@ enum class AppMode {
     DEBUG_INSPECT_CLASS
 }
 
+enum class GadgetInstallStatus {
+    IDLE,
+    VALIDATING,
+    RUNNING_CHECKS,
+    SUCCESS,
+    ERROR
+}
+
 data class Command(val name: String, val description: String)
 
 @Serializable
@@ -41,5 +49,11 @@ data class AppState(
     val sharedInspectResult: AtomicReference<ClassInspectionResult?> = AtomicReference(null),
     var inspectAttributes: List<String> = emptyList(),
     var inspectMethods: List<String> = emptyList(),
-    var isFetchingInspection: Boolean = false
+    var isFetchingInspection: Boolean = false,
+
+    // Gadget Install Status
+    var gadgetInstallStatus: GadgetInstallStatus = GadgetInstallStatus.IDLE,
+    var gadgetErrorMessage: String? = null,
+    val sharedGadgetResult: AtomicReference<Pair<GadgetInstallStatus, String?>?> = AtomicReference(null),
+    var gadgetSpinnerFrame: Int = 0
 )
