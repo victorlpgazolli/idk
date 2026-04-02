@@ -203,9 +203,21 @@ class FridaBridge:
                     break_on=params.get("break_on", "android.os.Handler.dispatchMessage"),
                     package_name=package_name
                 )
-                return result
-            finally:
+            except Exception as e:
+                # run_jdwp failed, best-effort re-attach
+                try:
+                    self._reattach_frida()
+                except Exception:
+                    pass
+                raise
+
+            # run_jdwp succeeded, re-attach frida for subsequent operations
+            try:
                 self._reattach_frida()
+            except Exception as reattach_err:
+                raise Exception(f"unable to re-attach to frida-server: {reattach_err}")
+
+            return result
 
         else:
             raise Exception(f"Method {method} not found")

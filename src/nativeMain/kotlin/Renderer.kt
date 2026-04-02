@@ -64,6 +64,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
             renderWelcome(buf)
+            renderClassFetchStatus(buf, state)
             renderCtrlCWarning(buf, state)
             renderInputBox(buf, state, width)
             renderClassList(buf, state)
@@ -133,6 +134,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             }
             else -> {}
         }
+    }
+
+    private fun renderClassFetchStatus(buf: StringBuilder, state: AppState) {
+        if (!state.isFetchingClasses) return
+        val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+        val suffix = if (state.inputBuffer.length < 2) " (this could take a while)" else ""
+        buf.append("   $LIGHT_GRAY$frame Fetching available classes$suffix$RESET\n")
     }
 
     private fun renderCtrlCWarning(buf: StringBuilder, state: AppState) {

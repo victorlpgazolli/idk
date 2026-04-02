@@ -284,6 +284,11 @@ fun main(args: Array<String>) {
                     }
                 }
 
+                if (state.mode == AppMode.DEBUG_CLASS_FILTER && state.isFetchingClasses) {
+                    state.gadgetSpinnerFrame++
+                    needsRender = true
+                }
+
                 if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (currentTimeMillis() - state.lastInputTimestamp > 500 && state.inputBuffer != state.lastSearchedParam) {
                         state.lastSearchedParam = state.inputBuffer
