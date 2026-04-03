@@ -1,5 +1,7 @@
 import Java from "frida-java-bridge";
 
+var instanceCache = {};
+
 rpc.exports = {
     listclasses: function(searchParam) {
         var classes = [];
@@ -56,6 +58,83 @@ rpc.exports = {
             return count;
         } catch (e) {
             return -1;
+        }
+    },
+
+    listinstances: function(className) {
+        var instances = [];
+        var total = 0;
+        try {
+            Java.perform(function() {
+                Java.choose(className, {
+                    onMatch: function(instance) {
+                        total++;
+                        if (instances.length < 50) {
+                            var id = instance.hashCode().toString();
+                            var hndl = instance.$handle ? instance.$handle.toString() : "";
+                            instanceCache[id] = instance;
+                            instances.push({
+                                id: id,
+                                handle: hndl,
+                                summary: instance.toString()
+                            });
+                        }
+                    },
+                    onComplete: function() {}
+                });
+            });
+            return { instances: instances, totalCount: total };
+        } catch (e) {
+            return { error: e.toString(), instances: [], totalCount: 0 };
+        }
+    },
+
+    inspectinstance: function(className, id) {
+        var attributes = [];
+        try {
+            Java.perform(function() {
+                var instance = instanceCache[id];
+                if (!instance) {
+                    throw new Error("Instance not found in cache.");
+                }
+                var clazz = Java.use(className);
+                var classDef = clazz.class;
+                
+                var fields = classDef.getDeclaredFields();
+                for (var i = 0; i < fields.length; i++) {
+                    var field = fields[i];
+                    field.setAccessible(true);
+                    var name = field.getName();
+                    var type = field.getType().getSimpleName();
+                    var valStr = "unknown";
+                    var childId = null;
+                    var childClassName = null;
+                    try {
+                        var fieldVal = field.get(instance);
+                        if (fieldVal !== null) {
+                            valStr = fieldVal.toString();
+                            var isBasicType = ["int", "long", "boolean", "byte", "short", "float", "double", "string", "charsequence", "char"].indexOf(type.toLowerCase()) !== -1;
+                            if (!isBasicType) {
+                                childId = fieldVal.hashCode().toString();
+                                instanceCache[childId] = fieldVal;
+                                try {
+                                    childClassName = fieldVal.getClass().getName();
+                                } catch(e) {
+                                  childClassName = field.getType().getName();
+                                }
+                            }
+                        } else {
+                           valStr = "null";
+                        }
+                    } catch(fe) {
+                        valStr = "error";
+                    }
+                    attributes.push({ name: name, type: type, value: valStr, childId: childId, childClassName: childClassName });
+                }
+            });
+            return { attributes: attributes };
+        } catch (e) {
+            return { error: e.toString(), attributes: [] };
         }
     }
 };

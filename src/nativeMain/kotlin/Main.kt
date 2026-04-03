@@ -99,19 +99,55 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Char -> {
-                state.ctrlCPressed = false
-                state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
-                        key.c +
-                        state.inputBuffer.substring(state.cursorPosition)
-                state.cursorPosition++
-                
-                if (state.mode == AppMode.DEFAULT) {
-                    state.suggestions = CommandRegistry.search(state.inputBuffer)
-                    state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+                if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'R' || key.c == 'r')) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
+                        val row = rows[state.selectedClassIndex]
+                        if (row is InspectRow.InstanceRow || row is InspectRow.InstanceAttributeRow) {
+                            var targetId: String
+                            var targetClassName: String
+                            
+                            if (row is InspectRow.InstanceRow) {
+                                targetId = row.instance.id
+                                targetClassName = state.inspectTargetClassName
+                            } else {
+                                val attrRow = row as InspectRow.InstanceAttributeRow
+                                if (attrRow.attribute.childId != null && attrRow.isExpanded) {
+                                    targetId = attrRow.attribute.childId!!
+                                    targetClassName = attrRow.attribute.childClassName ?: ""
+                                } else {
+                                    targetId = attrRow.instanceId
+                                    targetClassName = state.inspectTargetClassName 
+                                }
+                            }
+                            
+                            state.inspectExpandedInstances[targetId] = null
+                            Renderer.render(state)
+                            scope.launch {
+                                val (attrs, err) = RpcClient.inspectInstance(targetClassName, targetId)
+                                if (err == null && attrs != null) {
+                                    state.sharedInspectInstanceResult.value = Pair(targetId, attrs)
+                                } else {
+                                    state.sharedRpcError.value = err ?: "Unknown error"
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    state.lastInputTimestamp = currentTimeMillis()
+                    state.ctrlCPressed = false
+                    state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
+                            key.c +
+                            state.inputBuffer.substring(state.cursorPosition)
+                    state.cursorPosition++
+                    
+                    if (state.mode == AppMode.DEFAULT) {
+                        state.suggestions = CommandRegistry.search(state.inputBuffer)
+                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+                    } else {
+                        state.lastInputTimestamp = currentTimeMillis()
+                    }
+                    Renderer.render(state)
                 }
-                Renderer.render(state)
             }
 
             is KeyEvent.Backspace -> {
@@ -189,11 +225,10 @@ fun main(args: Array<String>) {
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
-                    // Inspect scrolling logic offset simulation
-                    val totalElements = state.inspectAttributes.size + state.inspectMethods.size
-                    if (totalElements > 0) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty()) {
                         state.selectedClassIndex =
-                            (state.selectedClassIndex + 1).coerceAtMost(totalElements - 1)
+                            (state.selectedClassIndex + 1).coerceAtMost(rows.size - 1)
                         Renderer.render(state)
                     }
                 }
@@ -213,8 +248,8 @@ fun main(args: Array<String>) {
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
-                    val totalElements = state.inspectAttributes.size + state.inspectMethods.size
-                    if (totalElements > 0) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty()) {
                         state.selectedClassIndex =
                             (state.selectedClassIndex - 1).coerceAtLeast(0)
                         Renderer.render(state)
@@ -278,7 +313,73 @@ fun main(args: Array<String>) {
                         TmuxManager.appendInspectWindow(selectedClass)
                     }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
-                    // Do nothing on enter
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
+                        when (val row = rows[state.selectedClassIndex]) {
+                            is InspectRow.SectionStaticRow -> {
+                                state.inspectStaticExpanded = !state.inspectStaticExpanded
+                                Renderer.render(state)
+                            }
+                            is InspectRow.SectionInstancesRow -> {
+                                state.inspectInstancesExpanded = !state.inspectInstancesExpanded
+                                if (state.inspectInstancesExpanded && state.inspectInstancesList == null) {
+                                    state.isFetchingInstancesList = true
+                                    Renderer.render(state)
+                                    scope.launch {
+                                        val (res, err) = RpcClient.listInstances(state.inspectTargetClassName)
+                                        if (err == null && res != null) {
+                                            state.sharedInstancesListResult.value = res
+                                        } else {
+                                            state.sharedRpcError.value = err ?: "Unknown error fetching instances"
+                                            state.isFetchingInstancesList = false
+                                        }
+                                    }
+                                } else {
+                                    Renderer.render(state)
+                                }
+                            }
+                            is InspectRow.InstanceRow -> {
+                                val id = row.instance.id
+                                if (state.inspectExpandedInstances.containsKey(id)) {
+                                    state.inspectExpandedInstances.remove(id)
+                                    Renderer.render(state)
+                                } else {
+                                    state.inspectExpandedInstances[id] = null
+                                    Renderer.render(state)
+                                    scope.launch {
+                                        val (attrs, err) = RpcClient.inspectInstance(state.inspectTargetClassName, id)
+                                        if (err == null && attrs != null) {
+                                            state.sharedInspectInstanceResult.value = Pair(id, attrs)
+                                        } else {
+                                            state.sharedRpcError.value = err ?: "Unknown error"
+                                        }
+                                    }
+                                }
+                            }
+                            is InspectRow.InstanceAttributeRow -> {
+                                val childId = row.attribute.childId
+                                val childClassName = row.attribute.childClassName
+                                if (childId != null && childClassName != null) {
+                                    if (state.inspectExpandedInstances.containsKey(childId)) {
+                                        state.inspectExpandedInstances.remove(childId)
+                                        Renderer.render(state)
+                                    } else {
+                                        state.inspectExpandedInstances[childId] = null
+                                        Renderer.render(state)
+                                        scope.launch {
+                                            val (attrs, err) = RpcClient.inspectInstance(childClassName, childId)
+                                            if (err == null && attrs != null) {
+                                                state.sharedInspectInstanceResult.value = Pair(childId, attrs)
+                                            } else {
+                                                state.sharedRpcError.value = err ?: "Unknown error"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
                 }
             }
 
@@ -364,7 +465,7 @@ fun main(args: Array<String>) {
                     }
                 }
 
-                if ((state.mode == AppMode.DEBUG_CLASS_FILTER && state.isFetchingClasses) || state.isFetchingInstances) {
+                if ((state.mode == AppMode.DEBUG_CLASS_FILTER && state.isFetchingClasses) || state.isFetchingInstances || state.isFetchingInstancesList) {
                     state.gadgetSpinnerFrame++
                     needsRender = true
                 }
@@ -439,16 +540,41 @@ fun main(args: Array<String>) {
                     }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
                     val prevInspectStatus = state.sharedInspectResult.value
-                    val previousError = state.sharedRpcError.value
                     if (prevInspectStatus != null) {
                         state.inspectAttributes = prevInspectStatus.attributes
                         state.inspectMethods = prevInspectStatus.methods
                         state.sharedInspectResult.value = null
                         needsRender = true
                     }
+                    
+                    val listInstancesResult = state.sharedInstancesListResult.value
+                    if (listInstancesResult != null) {
+                        state.inspectInstancesList = listInstancesResult.instances
+                        state.inspectInstancesTotalCount = listInstancesResult.totalCount
+                        state.isFetchingInstancesList = false
+                        state.sharedInstancesListResult.value = null
+                        needsRender = true
+                    }
+                    
+                    val inspectInstanceResult = state.sharedInspectInstanceResult.value
+                    if (inspectInstanceResult != null) {
+                        state.inspectExpandedInstances[inspectInstanceResult.first] = inspectInstanceResult.second
+                        state.sharedInspectInstanceResult.value = null
+                        needsRender = true
+                    }
+
+                    val inspectInstanceError = state.sharedInspectInstanceError.value
+                    if (inspectInstanceError != null) {
+                        state.inspectExpandedInstancesError[inspectInstanceError.first] = inspectInstanceError.second
+                        state.sharedInspectInstanceError.value = null
+                        needsRender = true
+                    }
+
+                    val previousError = state.sharedRpcError.value
                     if (previousError != null) {
                         state.rpcError = previousError
                         state.sharedRpcError.value = null
+                        state.isFetchingInstancesList = false
                         needsRender = true
                     }
                 }

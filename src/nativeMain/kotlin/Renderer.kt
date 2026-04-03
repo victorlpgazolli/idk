@@ -25,8 +25,13 @@ object Renderer {
     private const val DIM_GRAY = "\u001b[90m"
     private const val WHITE = "\u001b[97m"
     private const val LIGHT_GRAY = "\u001b[38;5;250m"
+    private const val PROPERTY_NAME = "\u001b[38;5;252m"
+    private const val TYPE_BOOLEAN = "\u001b[38;5;39m"
+    private const val TYPE_NUMBER = "\u001b[38;5;114m"
+    private const val TYPE_STRING = "\u001b[38;5;173m"
+    private const val TYPE_OTHER = "\u001b[38;5;43m"
     private const val RESET = "\u001b[0m"
-
+    
     private val SPINNER_FRAMES = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     private const val LOGO = """
@@ -72,7 +77,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
             renderCtrlCWarning(buf, state)
             renderInspectHeader(buf, state, width)
-            renderInspectClassList(buf, state)
+            renderInspectClassList(buf, state, termHeight)
         }
 
         buf.append(Ansi.SHOW_CURSOR)
@@ -304,7 +309,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n\n")
     }
 
-    private fun renderInspectClassList(buf: StringBuilder, state: AppState) {
+    private fun renderInspectClassList(buf: StringBuilder, state: AppState, termHeight: Int) {
         if (state.rpcError != null) {
             buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
             return
@@ -315,46 +320,111 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val selectableItems = state.inspectAttributes + state.inspectMethods
-        if (selectableItems.isEmpty()) {
-            buf.append(Ansi.DIM).append("  No attributes or methods found.").append(Ansi.RESET).append("\n")
+        val rows = state.buildInspectRows()
+        if (rows.isEmpty()) {
+            buf.append(Ansi.DIM).append("  No items to display.").append(Ansi.RESET).append("\n")
             return
         }
 
-        val maxItems = 20
+        val maxItems = if (termHeight > 15) termHeight - 15 else 20
         var startIdx = 0
         if (state.selectedClassIndex > maxItems / 2) {
             startIdx = state.selectedClassIndex - maxItems / 2
         }
-        val endIdx = minOf(selectableItems.size, startIdx + maxItems)
-
-        var previouslyInMethods = startIdx >= state.inspectAttributes.size
-        if (!previouslyInMethods && state.inspectAttributes.isNotEmpty()) {
-            buf.append("${K_PINK}    Attributes:${Ansi.RESET}\n")
-        } else if (previouslyInMethods && state.inspectMethods.isNotEmpty()) {
-            buf.append("${K_PINK}    Methods:${Ansi.RESET}\n")
-        }
+        val endIdx = minOf(rows.size, startIdx + maxItems)
 
         for (i in startIdx until endIdx) {
-            val isMethod = i >= state.inspectAttributes.size
-            if (isMethod && !previouslyInMethods) {
-                buf.append("\n${K_PINK}    Methods:${Ansi.RESET}\n")
-                previouslyInMethods = true
-            }
-
-            val itemText = selectableItems[i]
+            val row = rows[i]
             val isSelected = i == state.selectedClassIndex
+            val selectionMarker = if (isSelected) "${Ansi.GREEN}   >  ${Ansi.RESET}" else "      "
             
-            if (isSelected) {
-                buf.append("${Ansi.GREEN}   >  $itemText${Ansi.RESET}\n")
-            } else {
-                buf.append("      ${DIM_GRAY}$itemText${Ansi.RESET}\n")
+            val baseIndentStr = when (row) {
+                is InspectRow.StaticAttributeRow, is InspectRow.StaticMethodRow -> "    "
+                is InspectRow.InstanceRow -> " ".repeat(row.depth * 8)
+                is InspectRow.InstanceAttributeRow -> " ".repeat(row.depth * 8)
+                else -> ""
+            }
+            val prefix = "$baseIndentStr$selectionMarker"
+            
+            when (row) {
+                is InspectRow.SectionStaticRow -> {
+                    val actionText = if (row.isExpanded) "Collapse static attributes and methods" else "Expand static attributes and methods"
+                    buf.append(prefix).append(K_PURPLE).append("1. ").append(actionText).append(Ansi.RESET).append("\n")
+                }
+                is InspectRow.SectionInstancesRow -> {
+                    val countInfo = if (state.inspectInstancesList != null) " (${state.inspectInstancesTotalCount})" else ""
+                    val actionText = "Found instances$countInfo"
+                    buf.append(prefix).append(K_PURPLE).append("2. ").append(actionText).append(Ansi.RESET).append("\n")
+                    if (state.isFetchingInstancesList) {
+                        val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+                        buf.append("      ").append("    $LIGHT_GRAY$frame Fetching instances...$RESET\n")
+                    }
+                }
+                is InspectRow.StaticAttributeRow -> {
+                    buf.append(prefix).append("    ").append(DIM_GRAY).append(row.attribute).append(Ansi.RESET).append("\n")
+                }
+                is InspectRow.StaticMethodRow -> {
+                    buf.append(prefix).append("    ").append(DIM_GRAY).append(row.method).append(Ansi.RESET).append("\n")
+                }
+                is InspectRow.InstanceRow -> {
+                    buf.append(prefix).append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(row.instance.summary).append(Ansi.RESET).append("\n")
+                    if (row.isExpanded) {
+                        val errorStr = state.inspectExpandedInstancesError[row.instance.id]
+                        if (errorStr != null) {
+                             buf.append(baseIndentStr).append("      ").append("        ${Ansi.RED}Error loading attributes: $errorStr${Ansi.RESET}\n")
+                        } else {
+                            val isFetchingAttrs = state.inspectExpandedInstances[row.instance.id] == null
+                            if (isFetchingAttrs) {
+                                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+                                buf.append(baseIndentStr).append("      ").append("        $LIGHT_GRAY$frame Loading attributes...$RESET\n")
+                            } else {
+                                buf.append(baseIndentStr).append("      ").append("        ${DIM_GRAY}Attributes of this instance: (press ${Ansi.WHITE}R${DIM_GRAY} to refresh)${Ansi.RESET}\n")
+                            }
+                        }
+                    }
+                }
+                is InspectRow.InstanceAttributeRow -> {
+                    val typeStr = "(${row.attribute.type})"
+                    val typeColor = when (row.attribute.type.lowercase()) {
+                        "boolean", "bool" -> TYPE_BOOLEAN
+                        "int", "long", "float", "double", "short", "byte" -> TYPE_NUMBER
+                        "string", "char", "charsequence" -> TYPE_STRING
+                        else -> TYPE_OTHER
+                    }
+                    val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
+                    
+                    buf.append(prefix)
+                    buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
+                    buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
+                    buf.append(" : ")
+                    if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
+                        buf.append(valColor).append("\"").append(row.attribute.value).append("\"").append(Ansi.RESET)
+                    } else {
+                        buf.append(valColor).append(row.attribute.value).append(Ansi.RESET)
+                    }
+                    buf.append("\n")
+
+                    if (row.isExpanded && row.attribute.childId != null) {
+                        val errorStr = state.inspectExpandedInstancesError[row.attribute.childId]
+                        if (errorStr != null) {
+                            buf.append(baseIndentStr).append("      ").append("        ${Ansi.RED}Error loading attributes: $errorStr${Ansi.RESET}\n")
+                        } else {
+                            val isFetchingAttrs = state.inspectExpandedInstances[row.attribute.childId] == null
+                            if (isFetchingAttrs) {
+                                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+                                buf.append(baseIndentStr).append("      ").append("        $LIGHT_GRAY$frame Loading attributes...$RESET\n")
+                            } else {
+                                buf.append(baseIndentStr).append("      ").append("        ${DIM_GRAY}Attributes of this instance: (press ${Ansi.WHITE}R${DIM_GRAY} to refresh)${Ansi.RESET}\n")
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        if (selectableItems.size > endIdx) {
-             buf.append(Ansi.DIM).append("    ... and ${selectableItems.size - endIdx} more items").append(Ansi.RESET).append("\n")
+        if (rows.size > endIdx) {
+             val diff = rows.size - endIdx
+             buf.append(Ansi.DIM).append("    ... and $diff more items").append(Ansi.RESET).append("\n")
         }
-
     }
 }

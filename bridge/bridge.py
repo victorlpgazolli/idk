@@ -155,6 +155,14 @@ class FridaBridge:
         elif method == "countInstances":
             return self.count_instances(params.get("className", ""))
 
+        elif method == "listInstances":
+            self.get_session()
+            return self.script.exports_sync.listinstances(params.get("className", ""))
+
+        elif method == "inspectInstance":
+            self.get_session()
+            return self.script.exports_sync.inspectinstance(params.get("className", ""), params.get("id", ""))
+
         elif method == "installGadget":
             port = 8700
             target = "127.0.0.1"
