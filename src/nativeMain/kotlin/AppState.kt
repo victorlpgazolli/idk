@@ -25,6 +25,25 @@ data class ClassInspectionResult(
     val methods: List<String>
 )
 
+@Serializable
+enum class HookType { METHOD, FIELD }
+
+@Serializable
+data class HookTarget(
+    val className: String,
+    val memberSignature: String,
+    val type: HookType,
+    var enabled: Boolean = true
+)
+
+@Serializable
+data class HookEvent(
+    val timestamp: Long,
+    val target: HookTarget,
+    val data: Map<String, String>,
+    var count: Int = 1
+)
+
 sealed class InspectRow {
     data class SectionStaticRow(val isExpanded: Boolean) : InspectRow()
     data class StaticAttributeRow(val attribute: String) : InspectRow()
@@ -90,7 +109,13 @@ data class AppState(
     var gadgetInstallStatus: GadgetInstallStatus = GadgetInstallStatus.IDLE,
     var gadgetErrorMessage: String? = null,
     val sharedGadgetResult: AtomicReference<Pair<GadgetInstallStatus, String?>?> = AtomicReference(null),
-    var gadgetSpinnerFrame: Int = 0
+    var gadgetSpinnerFrame: Int = 0,
+
+    var activeHooks: MutableSet<HookTarget> = mutableSetOf(),
+    var hookEvents: MutableList<HookEvent> = mutableListOf(),
+    val sharedHookEvents: AtomicReference<List<HookEvent>?> = AtomicReference(null),
+    var selectedHookIndex: Int = 0,
+    var hookLogScrollOffset: Int = 0
 ) {
     fun buildInspectRows(): List<InspectRow> {
         val rows = mutableListOf<InspectRow>()
