@@ -4,6 +4,7 @@ object Ansi {
     const val DIM = "\u001b[90m"
     const val GREEN = "\u001b[92m"
     const val YELLOW = "\u001b[93m"
+    const val BLUE = "\u001b[94m"
     const val RED = "\u001b[91m"
     const val CLEAR_SCREEN = "\u001b[2J"
     const val CURSOR_HOME = "\u001b[H"
@@ -381,10 +382,27 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(K_VIOLET).append(title).append(Ansi.RESET)
         buf.append(" ".repeat(padding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
         
-        val hooksLine = " Active hooks: ${state.activeHooks.size} items "
-        val hooksPadding = maxOf(0, innerWidth - hooksLine.length)
+        val methodCount = state.activeHooks.count { it.type == HookType.METHOD }
+        val fieldCount = state.activeHooks.count { it.type == HookType.FIELD }
+        
+        val methodLabel = if (methodCount == 1) "method" else "methods"
+        val fieldLabel = if (fieldCount == 1) "field" else "fields"
+        
+        val hooksPrefix = " Hooks: [ "
+        val methodStr = "$methodCount $methodLabel"
+        val separator = ", "
+        val fieldStr = "$fieldCount $fieldLabel"
+        val hooksSuffix = " ] "
+        
+        val visibleHooksLen = hooksPrefix.length + methodStr.length + separator.length + fieldStr.length + hooksSuffix.length
+        val hooksPadding = maxOf(0, innerWidth - visibleHooksLen)
+        
         buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
-        buf.append(Ansi.YELLOW).append(hooksLine).append(Ansi.RESET)
+        buf.append(Ansi.WHITE).append(hooksPrefix).append(Ansi.RESET)
+        buf.append(Ansi.YELLOW).append(methodStr).append(Ansi.RESET)
+        buf.append(Ansi.WHITE).append(separator).append(Ansi.RESET)
+        buf.append(Ansi.BLUE).append(fieldStr).append(Ansi.RESET)
+        buf.append(Ansi.WHITE).append(hooksSuffix).append(Ansi.RESET)
         buf.append(" ".repeat(hooksPadding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
 
         buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n")
