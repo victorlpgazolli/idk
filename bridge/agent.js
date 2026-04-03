@@ -197,12 +197,16 @@ rpc.exports = {
     },
     unhookmethod: function(className, methodSig) {
         Java.perform(function() {
-            var targetClass = Java.use(className);
-            var methodName = methodSig.split('(')[0];
-            var original = activeHookImplementations[className + methodSig];
-            if (original) {
-                targetClass[methodName].implementation = original;
-                delete activeHookImplementations[className + methodSig];
+            try {
+                var targetClass = Java.use(className);
+                var methodName = methodSig.split('(')[0];
+                var original = activeHookImplementations[className + methodSig];
+                if (original) {
+                    targetClass[methodName].overloads[0].implementation = original;
+                    delete activeHookImplementations[className + methodSig];
+                }
+            } catch (e) {
+                console.error("Unhook failed: " + e);
             }
         });
         return true;
