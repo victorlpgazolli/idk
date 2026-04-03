@@ -16,6 +16,27 @@ fun currentTimeMillis(): Long {
     }
 }
 
+fun initDebugClassFilter(state: AppState, scope: CoroutineScope) {
+    state.mode = AppMode.DEBUG_CLASS_FILTER
+    state.isFetchingClasses = true
+    scope.launch {
+        val ok = RpcClient.ping()
+        if (!ok) {
+            state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
+            state.isFetchingClasses = false
+        } else {
+            val (pkgResult, _) = RpcClient.getPackageName()
+            if (pkgResult != null) {
+                state.sharedAppPackageName.value = pkgResult
+            }
+            val (result, error) = RpcClient.listClasses("", 0, 200)
+            state.sharedFetchedClasses.value = result ?: emptyList()
+            state.sharedRpcError.value = error
+            state.isFetchingClasses = false
+        }
+    }
+}
+
 fun main(args: Array<String>) {
     CacheManager.ensureCacheDir()
 
@@ -24,7 +45,9 @@ fun main(args: Array<String>) {
     if (args.contains("--mode") && args.indexOf("--mode") + 1 < args.size) {
         val modeIdx = args.indexOf("--mode")
         val modeStr = args[modeIdx + 1]
-        if (modeStr == "debug_class_filter") {
+        if (modeStr == "debug_entrypoint") {
+            initialMode = AppMode.DEBUG_ENTRYPOINT
+        } else if (modeStr == "debug_class_filter") {
             initialMode = AppMode.DEBUG_CLASS_FILTER
         } else if (modeStr == "debug_inspect_class") {
             initialMode = AppMode.DEBUG_INSPECT_CLASS
@@ -43,19 +66,7 @@ fun main(args: Array<String>) {
     val scope = CoroutineScope(Dispatchers.Default)
 
     if (initialMode == AppMode.DEBUG_CLASS_FILTER) {
-        state.isFetchingClasses = true
-        scope.launch {
-            val ok = RpcClient.ping()
-            if (!ok) {
-                state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
-                state.isFetchingClasses = false
-            } else {
-                val (result, error) = RpcClient.listClasses("", 0, 200)
-                state.sharedFetchedClasses.value = result ?: emptyList()
-                state.sharedRpcError.value = error
-                state.isFetchingClasses = false
-            }
-        }
+        initDebugClassFilter(state, scope)
     } else if (initialMode == AppMode.DEBUG_INSPECT_CLASS) {
         state.inspectTargetClassName = inspectTarget
         state.isFetchingInspection = true
@@ -212,7 +223,10 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowDown -> {
-                if (state.mode == AppMode.DEFAULT) {
+                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                    state.debugEntrypointIndex = (state.debugEntrypointIndex + 1).coerceAtMost(1)
+                    Renderer.render(state)
+                } else if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty()) {
                         state.selectedSuggestionIndex =
                             (state.selectedSuggestionIndex + 1).coerceAtMost(state.suggestions.size - 1)
@@ -235,7 +249,10 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowUp -> {
-                if (state.mode == AppMode.DEFAULT) {
+                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                    state.debugEntrypointIndex = (state.debugEntrypointIndex - 1).coerceAtLeast(0)
+                    Renderer.render(state)
+                } else if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty()) {
                         state.selectedSuggestionIndex =
                             (state.selectedSuggestionIndex - 1).coerceAtLeast(0)
@@ -274,7 +291,11 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Enter -> {
-                if (state.mode == AppMode.DEFAULT) {
+                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                    if (state.debugEntrypointIndex == 0) {
+                        initDebugClassFilter(state, scope)
+                    }
+                } else if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty() && state.selectedSuggestionIndex >= 0) {
                         val selected = state.suggestions[state.selectedSuggestionIndex]
                         if (state.inputBuffer == selected.name) {
@@ -504,8 +525,8 @@ fun main(args: Array<String>) {
                     
                     val fetched = state.sharedFetchedClasses.value
                     if (fetched != null) {
-                        state.displayedClasses = fetched
-                        state.selectedClassIndex = if (fetched.isNotEmpty()) 0 else -1
+                        state.displayedClasses = CommandExecutor.sortClasses(fetched, state.appPackageName)
+                        state.selectedClassIndex = if (state.displayedClasses.isNotEmpty()) 0 else -1
                         state.sharedFetchedClasses.value = null
                         state.isFetchingClasses = false
                         needsRender = true
@@ -518,27 +539,19 @@ fun main(args: Array<String>) {
                         state.isFetchingClasses = false
                         needsRender = true
                     }
+
+                    val updatedPkg = state.sharedAppPackageName.value
+                    if (updatedPkg != null) {
+                        state.appPackageName = updatedPkg
+                        state.sharedAppPackageName.value = null
+                        if (state.displayedClasses.isNotEmpty()) {
+                            state.displayedClasses = CommandExecutor.sortClasses(state.displayedClasses, state.appPackageName)
+                            needsRender = true
+                        }
+                    }
                 }
 
-                if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
-                    val previouslyFetched = state.sharedFetchedClasses.value
-                    val previousError = state.sharedRpcError.value
-                    if (previouslyFetched != null) {
-                        state.displayedClasses = previouslyFetched
-                        state.sharedFetchedClasses.value = null
-                        if (state.selectedClassIndex >= state.displayedClasses.size) {
-                            state.selectedClassIndex = if (state.displayedClasses.isNotEmpty()) 0 else -1
-                        } else if (state.selectedClassIndex < 0 && state.displayedClasses.isNotEmpty()) {
-                            state.selectedClassIndex = 0
-                        }
-                        needsRender = true
-                    }
-                    if (previousError != null) {
-                        state.rpcError = previousError
-                        state.sharedRpcError.value = null
-                        needsRender = true
-                    }
-                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
                     val prevInspectStatus = state.sharedInspectResult.value
                     if (prevInspectStatus != null) {
                         state.inspectAttributes = prevInspectStatus.attributes

@@ -237,6 +237,10 @@ class FridaBridge:
 
             return result
 
+        elif method == "getpackagename":
+            self.get_session()
+            return self.script.exports_sync.getpackagename()
+
         else:
             raise Exception(f"Method {method} not found")
 

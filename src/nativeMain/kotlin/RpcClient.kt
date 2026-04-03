@@ -148,6 +148,14 @@ data class JsonRpcInspectResponse(
 )
 
 @Serializable
+data class JsonRpcStringResponse(
+    val jsonrpc: String,
+    val result: String? = null,
+    val error: JsonRpcError? = null,
+    val id: Int? = null
+)
+
+@Serializable
 data class JsonRpcCountInstancesResponse(
     val jsonrpc: String,
     val result: Int? = null,
@@ -402,6 +410,32 @@ object RpcClient {
             }
         } catch (e: Exception) {
             Pair("error", "Bridge server is not running")
+        }
+    }
+
+    suspend fun getPackageName(): Pair<String?, String?> {
+        return try {
+            val requestBody = JsonRpcRequestSimple(method = "getpackagename")
+
+            val response: HttpResponse = withTimeoutOrNull(5000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return Pair(null, "RPC Timeout (5s)")
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcStringResponse>()
+                if (rpcResponse.error != null) {
+                    Pair(null, rpcResponse.error.message)
+                } else {
+                    Pair(rpcResponse.result, null)
+                }
+            } else {
+                Pair(null, "RPC HTTP Error: ${response.status.value}")
+            }
+        } catch (e: Exception) {
+            Pair(null, "RPC Internal Error: ${e.message}")
         }
     }
 }

@@ -32,6 +32,14 @@ object Renderer {
     private const val TYPE_OTHER = "\u001b[38;5;43m"
     private const val RESET = "\u001b[0m"
     
+    // Java Syntax Highlighting
+    private const val J_MODIFIER = "\u001b[38;5;208m" // Orange
+    private const val J_TYPE = "\u001b[38;5;114m"     // Greenish/Cyan
+    private const val J_PACKAGE = "\u001b[90m"        // Dim Gray
+    private const val J_CLASS = "\u001b[97m"          // White
+    private const val J_METHOD = "\u001b[38;5;220m"    // Yellow
+    private const val J_NUMBER = "\u001b[38;5;173m"    // Orange/Brown
+    
     private val SPINNER_FRAMES = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     private const val LOGO = """
@@ -78,6 +86,10 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderCtrlCWarning(buf, state)
             renderInspectHeader(buf, state, width)
             renderInspectClassList(buf, state, termHeight)
+        } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+            renderWelcome(buf)
+            renderCtrlCWarning(buf, state)
+            renderDebugEntrypoint(buf, state)
         }
 
         buf.append(Ansi.SHOW_CURSOR)
@@ -103,6 +115,25 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(INSTRUCTIONS_TEXT)
         buf.append(Ansi.RESET)
         buf.append("\n\n")
+    }
+
+    private fun renderDebugEntrypoint(buf: StringBuilder, state: AppState) {
+        val options = listOf(
+            "Search & inspect classes instances",
+            "Hook methods & watch changes"
+        )
+        
+        buf.append("  ${Ansi.WHITE}Select debug action:${Ansi.RESET}\n")
+        
+        for ((index, option) in options.withIndex()) {
+            val isSelected = index == state.debugEntrypointIndex
+            
+            if (isSelected) {
+                buf.append("${Ansi.GREEN}  > ${Ansi.WHITE}$option${Ansi.RESET}\n")
+            } else {
+                buf.append("    ${Ansi.DIM}$option${Ansi.RESET}\n")
+            }
+        }
     }
 
     private fun renderHistory(buf: StringBuilder, state: AppState) {
@@ -261,19 +292,37 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             val suffix = Ansi.RESET
             
             val query = state.lastSearchedParam
-            var formattedName = if (query.isNotEmpty() && className.contains(query, ignoreCase = true)) {
-                val start = className.indexOf(query, ignoreCase = true)
-                val end = start + query.length
-                val p1 = className.substring(0, start)
-                val match = className.substring(start, end)
-                val p2 = className.substring(end)
+            
+            val lastDot = className.lastIndexOf('.')
+            val packagePart = if (lastDot != -1) className.substring(0, lastDot + 1) else ""
+            val namePart = if (lastDot != -1) className.substring(lastDot + 1) else className
+            
+            val packageBaseColor = if (isSelected) Ansi.GREEN else DIM_GRAY
+            val nameBaseColor = WHITE
+            
+            fun formatPart(text: String, baseColor: String): String {
+                if (query.isEmpty() || !text.contains(query, ignoreCase = true)) {
+                    return "$baseColor$text"
+                }
+                val sb = StringBuilder()
+                var currentPos = 0
+                val lowerText = text.lowercase()
+                val lowerQuery = query.lowercase()
                 
-                val baseColor = if (isSelected) Ansi.GREEN else Ansi.DIM
-                "$baseColor$p1${if (isSelected) Ansi.GREEN else Ansi.RED}$match$baseColor$p2"
-            } else {
-                val baseColor = if (isSelected) Ansi.GREEN else Ansi.DIM
-                "$baseColor$className"
+                while (true) {
+                    val start = lowerText.indexOf(lowerQuery, currentPos)
+                    if (start == -1) {
+                        sb.append(baseColor).append(text.substring(currentPos))
+                        break
+                    }
+                    sb.append(baseColor).append(text.substring(currentPos, start))
+                    sb.append(Ansi.RED).append(text.substring(start, start + query.length))
+                    currentPos = start + query.length
+                }
+                return sb.toString()
             }
+            
+            var formattedName = formatPart(packagePart, packageBaseColor) + formatPart(namePart, nameBaseColor)
             
             val count = state.instanceCounts[className]
             if (count != null) {
@@ -361,10 +410,10 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     }
                 }
                 is InspectRow.StaticAttributeRow -> {
-                    buf.append(prefix).append("    ").append(DIM_GRAY).append(row.attribute).append(Ansi.RESET).append("\n")
+                    buf.append(prefix).append("    ").append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
-                    buf.append(prefix).append("    ").append(DIM_GRAY).append(row.method).append(Ansi.RESET).append("\n")
+                    buf.append(prefix).append("    ").append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
                     buf.append(prefix).append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(row.instance.summary).append(Ansi.RESET).append("\n")
@@ -426,5 +475,44 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
              val diff = rows.size - endIdx
              buf.append(Ansi.DIM).append("    ... and $diff more items").append(Ansi.RESET).append("\n")
         }
+    }
+
+    private fun highlightJavaSignature(signature: String): String {
+        val modifiers = setOf("public", "private", "protected", "static", "final", "native", "synchronized", "transient", "volatile", "abstract")
+        val primitives = setOf("int", "long", "boolean", "byte", "short", "float", "double", "void", "char")
+        
+        val sb = StringBuilder()
+        val tokens = signature.split(" ", "(", ")", ",").filter { it.isNotEmpty() }
+        
+        // This is a simple tokenizer/highlighter. For a full TUI we might want something more robust.
+        var currentIdx = 0
+        val words = signature.split(Regex("(?<=[\\s(),])|(?=[\\s(),])"))
+        
+        for (word in words) {
+            when {
+                word.trim() in modifiers -> sb.append(J_MODIFIER).append(word)
+                word.trim() in primitives -> sb.append(J_TYPE).append(word)
+                word.trim().isEmpty() -> sb.append(word)
+                word == "(" || word == ")" || word == "," -> sb.append(WHITE).append(word)
+                else -> {
+                    // Check if it's a qualified name
+                    if (word.contains('.')) {
+                        val lastDot = word.lastIndexOf('.')
+                        val pkg = word.substring(0, lastDot + 1)
+                        val name = word.substring(lastDot + 1)
+                        sb.append(J_PACKAGE).append(pkg).append(J_CLASS).append(name)
+                    } else {
+                        // Probably a method name or something else
+                        if (word.any { it.isDigit() }) {
+                           sb.append(J_NUMBER).append(word)
+                        } else {
+                           sb.append(J_METHOD).append(word)
+                        }
+                    }
+                }
+            }
+        }
+        sb.append(RESET)
+        return sb.toString()
     }
 }

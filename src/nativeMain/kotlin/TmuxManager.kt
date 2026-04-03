@@ -18,7 +18,7 @@ object TmuxManager {
 
     fun createSession(name: String): Boolean {
         if (!checkTmux()) return false
-        val exitCode = system("tmux new-session -d -s $name ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_class_filter 2>/dev/null")
+        val exitCode = system("tmux new-session -d -s $name ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_entrypoint 2>/dev/null")
         return exitCode == 0
     }
 

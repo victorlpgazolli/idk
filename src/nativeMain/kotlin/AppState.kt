@@ -3,6 +3,7 @@ import kotlinx.serialization.Serializable
 
 enum class AppMode {
     DEFAULT,
+    DEBUG_ENTRYPOINT,
     DEBUG_CLASS_FILTER,
     DEBUG_INSPECT_CLASS
 }
@@ -44,6 +45,10 @@ data class AppState(
     
     // Class Filter Mode additions
     var mode: AppMode = AppMode.DEFAULT,
+    var debugEntrypointIndex: Int = 0,
+    var appPackageName: String = "",
+    val sharedAppPackageName: AtomicReference<String?> = AtomicReference(null),
+    
     var lastInputTimestamp: Long = 0L,
     var lastSearchedParam: String = "",
     val sharedFetchedClasses: AtomicReference<List<String>?> = AtomicReference(null),

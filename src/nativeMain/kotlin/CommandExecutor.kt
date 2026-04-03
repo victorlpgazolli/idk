@@ -19,6 +19,21 @@ object CommandExecutor {
         }
     }
 
+    fun sortClasses(classes: List<String>, appPackage: String): List<String> {
+        if (appPackage.isEmpty()) return classes.sorted()
+        
+        val segments = appPackage.split('.')
+        val firstTwo = if (segments.size >= 2) segments.take(2).joinToString(".") else ""
+        
+        return classes.sortedWith(compareByDescending<String> { className ->
+            when {
+                className.startsWith("$appPackage.") || className == appPackage -> 3
+                firstTwo.isNotEmpty() && (className.startsWith("$firstTwo.") || className == firstTwo) -> 2
+                else -> 1
+            }
+        }.thenBy { it })
+    }
+
     private fun generateSessionId(): String {
         return (1..5).map { charPool.random() }.joinToString("")
     }

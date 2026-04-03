@@ -19,6 +19,22 @@ rpc.exports = {
         return classes;
     },
     
+    getpackagename: function() {
+        var pkgName = "";
+        try {
+            Java.perform(function() {
+                var ActivityThread = Java.use('android.app.ActivityThread');
+                var app = ActivityThread.currentApplication();
+                if (app != null) {
+                    pkgName = app.getPackageName();
+                }
+            });
+        } catch (e) {
+            // graceful fallback
+        }
+        return pkgName;
+    },
+    
     inspectclass: function(className) {
         var attributes = [];
         var methods = [];
