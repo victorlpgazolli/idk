@@ -253,6 +253,18 @@ class FridaBridge:
             self.get_session()
             return self.script.exports_sync.getpackagename()
 
+        elif method == "hookMethod":
+            self.get_session()
+            return self.script.exports_sync.hookmethod(params.get("className"), params.get("methodSig"))
+        
+        elif method == "unhookMethod":
+            self.get_session()
+            return self.script.exports_sync.unhookmethod(params.get("className"), params.get("methodSig"))
+
+        elif method == "getHookEvents":
+            self.get_session()
+            return self.script.exports_sync.gethookevents()
+
         else:
             raise Exception(f"Method {method} not found")
 
