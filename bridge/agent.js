@@ -1,6 +1,10 @@
 import Java from "frida-java-bridge";
 
 var instanceCache = {};
+var hookEvents = [];
+var activeHookImplementations = {};
+var fieldPollingInterval = null;
+var monitoredFields = {};
 
 rpc.exports = {
     listclasses: function(searchParam) {
@@ -161,5 +165,51 @@ rpc.exports = {
         } catch (e) {
             return { error: e.toString(), attributes: [] };
         }
+    },
+
+    hookmethod: function(className, methodSig) {
+        Java.perform(function() {
+            try {
+                var targetClass = Java.use(className);
+                // Basic signature parsing: methodName(arg1,arg2)
+                var methodName = methodSig.split('(')[0];
+                var overload = targetClass[methodName].overloads[0]; 
+
+                activeHookImplementations[className + methodSig] = overload.implementation;
+                overload.implementation = function() {
+                    var args = {};
+                    for (var i = 0; i < arguments.length; i++) {
+                        args["arg" + i] = arguments[i] ? arguments[i].toString() : "null";
+                    }
+                    var ret = overload.apply(this, arguments);
+                    hookEvents.push({
+                        timestamp: Date.now(),
+                        target: { className: className, memberSignature: methodSig, type: "METHOD" },
+                        data: { args: JSON.stringify(args), ret: ret ? ret.toString() : "void" }
+                    });
+                    return ret;
+                };
+            } catch (e) {
+                console.error("Hook failed: " + e);
+            }
+        });
+        return true;
+    },
+    unhookmethod: function(className, methodSig) {
+        Java.perform(function() {
+            var targetClass = Java.use(className);
+            var methodName = methodSig.split('(')[0];
+            var original = activeHookImplementations[className + methodSig];
+            if (original) {
+                targetClass[methodName].implementation = original;
+                delete activeHookImplementations[className + methodSig];
+            }
+        });
+        return true;
+    },
+    gethookevents: function() {
+        var events = hookEvents;
+        hookEvents = [];
+        return events;
     }
 };
