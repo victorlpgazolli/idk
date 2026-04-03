@@ -104,7 +104,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
             AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
             AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [Esc] Count Instances  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
         }
         val padding = maxOf(0, termWidth - footerText.length)
         
@@ -380,6 +380,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
         buf.append(K_VIOLET).append(title).append(Ansi.RESET)
         buf.append(" ".repeat(padding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
+        
+        val hooksLine = " Active hooks: ${state.activeHooks.size} items "
+        val hooksPadding = maxOf(0, innerWidth - hooksLine.length)
+        buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
+        buf.append(Ansi.YELLOW).append(hooksLine).append(Ansi.RESET)
+        buf.append(" ".repeat(hooksPadding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
+
         buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n")
     }
 
@@ -463,10 +470,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     buf.append(prefix).append(K_PURPLE).append("2. ").append(actionText).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.StaticAttributeRow -> {
-                    buf.append(prefix).append("    ").append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
+                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.attribute }
+                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
+                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
-                    buf.append(prefix).append("    ").append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
+                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.method }
+                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
+                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
                     val treeLine = if (row.isLast) "└── " else "├── "

@@ -123,7 +123,31 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Char -> {
-                if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'R' || key.c == 'r')) {
+                if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'h' || key.c == 'H')) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
+                        val row = rows[state.selectedClassIndex]
+                        if (row is InspectRow.StaticAttributeRow || row is InspectRow.StaticMethodRow) {
+                            val signature = if (row is InspectRow.StaticAttributeRow) row.attribute else (row as InspectRow.StaticMethodRow).method
+                            val type = if (row is InspectRow.StaticAttributeRow) HookType.FIELD else HookType.METHOD
+                            
+                            val existing = state.activeHooks.find { it.className == state.inspectTargetClassName && it.memberSignature == signature }
+                            if (existing != null) {
+                                state.activeHooks.remove(existing)
+                                scope.launch {
+                                    RpcClient.toggleHook(state.inspectTargetClassName, signature, false)
+                                }
+                            } else {
+                                val target = HookTarget(state.inspectTargetClassName, signature, type)
+                                state.activeHooks.add(target)
+                                scope.launch {
+                                    RpcClient.toggleHook(state.inspectTargetClassName, signature, true)
+                                }
+                            }
+                            Renderer.render(state)
+                        }
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'R' || key.c == 'r')) {
                     val rows = state.buildInspectRows()
                     if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
                         val row = rows[state.selectedClassIndex]
