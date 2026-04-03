@@ -131,6 +131,50 @@ fun main(args: Array<String>) {
                 }
             }
 
+            is KeyEvent.OptionBackspace -> {
+                if (state.cursorPosition > 0) {
+                    state.ctrlCPressed = false
+                    var pos = state.cursorPosition - 1
+                    while (pos >= 0 && !state.inputBuffer[pos].isLetterOrDigit()) pos--
+                    while (pos >= 0 && state.inputBuffer[pos].isLetterOrDigit()) pos--
+                    val newCursor = pos + 1
+                    
+                    state.inputBuffer = state.inputBuffer.substring(0, newCursor) + 
+                                        state.inputBuffer.substring(state.cursorPosition)
+                    state.cursorPosition = newCursor
+                    
+                    if (state.mode == AppMode.DEFAULT) {
+                        state.suggestions = CommandRegistry.search(state.inputBuffer)
+                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+                    } else {
+                        state.lastInputTimestamp = currentTimeMillis()
+                    }
+                    Renderer.render(state)
+                }
+            }
+
+            is KeyEvent.OptionLeft -> {
+                state.ctrlCPressed = false
+                var pos = state.cursorPosition - 1
+                if (pos >= 0) {
+                    while (pos >= 0 && !state.inputBuffer[pos].isLetterOrDigit()) pos--
+                    while (pos >= 0 && state.inputBuffer[pos].isLetterOrDigit()) pos--
+                    state.cursorPosition = pos + 1
+                    Renderer.render(state)
+                }
+            }
+
+            is KeyEvent.OptionRight -> {
+                state.ctrlCPressed = false
+                var pos = state.cursorPosition
+                if (pos < state.inputBuffer.length) {
+                    while (pos < state.inputBuffer.length && !state.inputBuffer[pos].isLetterOrDigit()) pos++
+                    while (pos < state.inputBuffer.length && state.inputBuffer[pos].isLetterOrDigit()) pos++
+                    state.cursorPosition = pos
+                    Renderer.render(state)
+                }
+            }
+
             is KeyEvent.ArrowDown -> {
                 if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty()) {
@@ -239,11 +283,47 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowLeft -> {
-                if (state.cursorPosition > 0) state.cursorPosition--
+                if (state.cursorPosition > 0) {
+                    state.cursorPosition--
+                    Renderer.render(state)
+                }
             }
 
             is KeyEvent.ArrowRight -> {
-                if (state.cursorPosition < state.inputBuffer.length) state.cursorPosition++
+                if (state.cursorPosition < state.inputBuffer.length) {
+                    state.cursorPosition++
+                    Renderer.render(state)
+                }
+            }
+
+            is KeyEvent.Esc -> {
+                if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+                    if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0 && !state.isFetchingInstances) {
+                        val selectedClass = state.displayedClasses[state.selectedClassIndex]
+                        state.isFetchingInstances = true
+                        Renderer.render(state)
+                        scope.launch {
+                            val (res, err) = RpcClient.countInstances(selectedClass)
+                            state.sharedInstanceCountResult.value = if (res != null) Pair(selectedClass, res) else null
+                            state.sharedInstanceCountError.value = err
+                        }
+                    }
+                }
+            }
+
+            is KeyEvent.Delete -> {
+                if (state.cursorPosition < state.inputBuffer.length) {
+                    state.ctrlCPressed = false
+                    state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
+                            state.inputBuffer.substring(state.cursorPosition + 1)
+                    if (state.mode == AppMode.DEFAULT) {
+                        state.suggestions = CommandRegistry.search(state.inputBuffer)
+                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+                    } else {
+                        state.lastInputTimestamp = currentTimeMillis()
+                    }
+                    Renderer.render(state)
+                }
             }
 
             is KeyEvent.Timeout -> {
@@ -284,9 +364,28 @@ fun main(args: Array<String>) {
                     }
                 }
 
-                if (state.mode == AppMode.DEBUG_CLASS_FILTER && state.isFetchingClasses) {
+                if ((state.mode == AppMode.DEBUG_CLASS_FILTER && state.isFetchingClasses) || state.isFetchingInstances) {
                     state.gadgetSpinnerFrame++
                     needsRender = true
+                }
+
+                if (state.isFetchingInstances) {
+                    val countResult = state.sharedInstanceCountResult.value
+                    val countError = state.sharedInstanceCountError.value
+                    
+                    if (countResult != null) {
+                        state.instanceCounts[countResult.first] = countResult.second
+                        state.sharedInstanceCountResult.value = null
+                        state.isFetchingInstances = false
+                        needsRender = true
+                    }
+                    
+                    if (countError != null) {
+                        state.rpcError = countError
+                        state.sharedInstanceCountError.value = null
+                        state.isFetchingInstances = false
+                        needsRender = true
+                    }
                 }
 
                 if (state.mode == AppMode.DEBUG_CLASS_FILTER) {

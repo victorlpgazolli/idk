@@ -133,6 +133,13 @@ class FridaBridge:
         classes.sort()
         return classes[offset:offset+limit]
 
+    def count_instances(self, class_name):
+        self.get_session()
+        count = self.script.exports_sync.countinstances(class_name)
+        if count == -1:
+            raise Exception(f"Failed to count instances for {class_name}")
+        return count
+
     def handle_rpc(self, method, params):
         if method == "listClasses":
             return self.list_classes(
@@ -144,6 +151,9 @@ class FridaBridge:
         elif method == "inspectClass":
             self.get_session()
             return self.script.exports_sync.inspectclass(params.get("className", ""))
+
+        elif method == "countInstances":
+            return self.count_instances(params.get("className", ""))
 
         elif method == "installGadget":
             port = 8700

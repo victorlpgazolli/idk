@@ -42,6 +42,19 @@ data class JsonRpcRequestInspectClass(
 )
 
 @Serializable
+data class CountInstancesParams(
+    val className: String
+)
+
+@Serializable
+data class JsonRpcRequestCountInstances(
+    val jsonrpc: String = "2.0",
+    val method: String,
+    val params: CountInstancesParams,
+    val id: Int = 1
+)
+
+@Serializable
 data class JsonRpcRequestSimple(
     val jsonrpc: String = "2.0",
     val method: String,
@@ -60,6 +73,14 @@ data class JsonRpcResponse(
 data class JsonRpcInspectResponse(
     val jsonrpc: String,
     val result: ClassInspectionResult? = null,
+    val error: JsonRpcError? = null,
+    val id: Int? = null
+)
+
+@Serializable
+data class JsonRpcCountInstancesResponse(
+    val jsonrpc: String,
+    val result: Int? = null,
     val error: JsonRpcError? = null,
     val id: Int? = null
 )
@@ -156,6 +177,37 @@ object RpcClient {
 
             if (response.status.value in 200..299) {
                 val rpcResponse = response.body<JsonRpcInspectResponse>()
+                if (rpcResponse.error != null) {
+                    Pair(null, rpcResponse.error.message)
+                } else if (rpcResponse.result == null) {
+                    Pair(null, "RPC Result is null")
+                } else {
+                    Pair(rpcResponse.result, null)
+                }
+            } else {
+                Pair(null, "RPC HTTP Error: ${response.status.value}")
+            }
+        } catch (e: Exception) {
+            Pair(null, "RPC Internal Error: ${e.message}")
+        }
+    }
+
+    suspend fun countInstances(className: String): Pair<Int?, String?> {
+        return try {
+            val requestBody = JsonRpcRequestCountInstances(
+                method = "countInstances",
+                params = CountInstancesParams(className)
+            )
+
+            val response: HttpResponse = withTimeoutOrNull(10000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return Pair(null, "RPC Timeout (10s)")
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcCountInstancesResponse>()
                 if (rpcResponse.error != null) {
                     Pair(null, rpcResponse.error.message)
                 } else if (rpcResponse.result == null) {

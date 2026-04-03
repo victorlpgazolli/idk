@@ -40,5 +40,22 @@ rpc.exports = {
             // Using error field to communicate exceptions back to RPC
             return { error: e.toString(), attributes: [], methods: [] };
         }
+    },
+
+    countinstances: function(className) {
+        var count = 0;
+        try {
+            Java.perform(function() {
+                Java.choose(className, {
+                    onMatch: function(instance) {
+                        count++;
+                    },
+                    onComplete: function() {}
+                });
+            });
+            return count;
+        } catch (e) {
+            return -1;
+        }
     }
 };

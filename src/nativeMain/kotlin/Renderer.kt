@@ -46,7 +46,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 """
 
     fun render(state: AppState) {
-        val (termWidth, _) = Terminal.getSize()
+        val (termWidth, termHeight) = Terminal.getSize()
         val width = if (termWidth > 4) termWidth - 2 else 70
         val buf = StringBuilder()
 
@@ -67,7 +67,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderClassFetchStatus(buf, state)
             renderCtrlCWarning(buf, state)
             renderInputBox(buf, state, width)
-            renderClassList(buf, state)
+            renderClassList(buf, state, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
             renderCtrlCWarning(buf, state)
@@ -137,10 +137,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderClassFetchStatus(buf: StringBuilder, state: AppState) {
-        if (!state.isFetchingClasses) return
-        val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-        val suffix = if (state.inputBuffer.length < 2) " (this could take a while)" else ""
-        buf.append("   $LIGHT_GRAY$frame Fetching available classes$suffix$RESET\n")
+        if (state.isFetchingClasses) {
+            val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+            val suffix = if (state.inputBuffer.length < 2) " (this could take a while)" else ""
+            buf.append("   $LIGHT_GRAY$frame Fetching available classes$suffix$RESET\n")
+        } else if (state.isFetchingInstances) {
+            val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+            buf.append("   $LIGHT_GRAY$frame Searching instances...$RESET\n")
+        }
     }
 
     private fun renderCtrlCWarning(buf: StringBuilder, state: AppState) {
@@ -221,7 +225,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         }
     }
 
-    private fun renderClassList(buf: StringBuilder, state: AppState) {
+    private fun renderClassList(buf: StringBuilder, state: AppState, termHeight: Int) {
         if (state.rpcError != null) {
             buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
             return
@@ -237,7 +241,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val maxItems = 15
+        val fixedLines = 19
+        val maxItems = maxOf(3, termHeight - fixedLines - 1)
         var startIdx = 0
         if (state.selectedClassIndex > maxItems / 2) {
             startIdx = state.selectedClassIndex - maxItems / 2
@@ -251,7 +256,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             val suffix = Ansi.RESET
             
             val query = state.lastSearchedParam
-            val formattedName = if (query.isNotEmpty() && className.contains(query, ignoreCase = true)) {
+            var formattedName = if (query.isNotEmpty() && className.contains(query, ignoreCase = true)) {
                 val start = className.indexOf(query, ignoreCase = true)
                 val end = start + query.length
                 val p1 = className.substring(0, start)
@@ -263,6 +268,11 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             } else {
                 val baseColor = if (isSelected) Ansi.GREEN else Ansi.DIM
                 "$baseColor$className"
+            }
+            
+            val count = state.instanceCounts[className]
+            if (count != null) {
+                formattedName += " ${Ansi.WHITE}[$count]${Ansi.RESET}"
             }
             
             buf.append(prefix)

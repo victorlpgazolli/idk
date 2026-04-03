@@ -24,7 +24,7 @@ object TmuxManager {
 
     fun appendInspectWindow(className: String): Boolean {
         if (!checkTmux()) return false
-        val exitCode = system("tmux split-window -h ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_inspect_class $className 2>/dev/null")
+        val exitCode = system("tmux split-window -h -p 70 ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_inspect_class $className 2>/dev/null")
         return exitCode == 0
     }
 

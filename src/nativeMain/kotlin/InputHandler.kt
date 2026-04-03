@@ -12,6 +12,11 @@ sealed class KeyEvent {
     data object ArrowDown : KeyEvent()
     data object ArrowLeft : KeyEvent()
     data object ArrowRight : KeyEvent()
+    data object Esc : KeyEvent()
+    data object Delete : KeyEvent()
+    data object OptionBackspace : KeyEvent()
+    data object OptionLeft : KeyEvent()
+    data object OptionRight : KeyEvent()
     data object CtrlC : KeyEvent()
     data object Timeout : KeyEvent()
     data object Unknown : KeyEvent()
@@ -35,17 +40,33 @@ object InputHandler {
             3 -> KeyEvent.CtrlC
             9 -> KeyEvent.Tab
             13 -> KeyEvent.Enter
+            23 -> KeyEvent.OptionBackspace // Ctrl-W maps to deleting backward word natively
             127 -> KeyEvent.Backspace
             27 -> {
                 val next = readByte()
-                if (next == '['.code) {
-                    when (readByte()) {
+                if (next == -1) {
+                    KeyEvent.Esc
+                } else if (next == '['.code) {
+                    var b = readByte()
+                    var seqStr = ""
+                    while (b != -1 && b < 0x40) {
+                        seqStr += b.toChar()
+                        b = readByte()
+                    }
+                    when (b) {
                         'A'.code -> KeyEvent.ArrowUp
                         'B'.code -> KeyEvent.ArrowDown
-                        'C'.code -> KeyEvent.ArrowRight
-                        'D'.code -> KeyEvent.ArrowLeft
+                        'C'.code -> if (seqStr.contains("3")) KeyEvent.OptionRight else KeyEvent.ArrowRight
+                        'D'.code -> if (seqStr.contains("3")) KeyEvent.OptionLeft else KeyEvent.ArrowLeft
+                        '~'.code -> if (seqStr == "3" || seqStr.endsWith(";3")) KeyEvent.Delete else KeyEvent.Unknown
                         else -> KeyEvent.Unknown
                     }
+                } else if (next == 127 || next == 8) {
+                    KeyEvent.OptionBackspace
+                } else if (next == 'b'.code) {
+                    KeyEvent.OptionLeft
+                } else if (next == 'f'.code) {
+                    KeyEvent.OptionRight
                 } else {
                     KeyEvent.Unknown
                 }

@@ -44,6 +44,11 @@ data class AppState(
     var isFetchingClasses: Boolean = false,
     var rpcError: String? = null,
     
+    var instanceCounts: MutableMap<String, Int> = mutableMapOf(),
+    var isFetchingInstances: Boolean = false,
+    val sharedInstanceCountResult: AtomicReference<Pair<String, Int>?> = AtomicReference(null),
+    val sharedInstanceCountError: AtomicReference<String?> = AtomicReference(null),
+    
     // Inspect Mode additions
     var inspectTargetClassName: String = "",
     val sharedInspectResult: AtomicReference<ClassInspectionResult?> = AtomicReference(null),
