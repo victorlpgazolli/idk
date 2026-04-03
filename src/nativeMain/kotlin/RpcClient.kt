@@ -214,6 +214,25 @@ data class JsonRpcInjectJdwpRequest(
     val id: Int = 1
 )
 
+@Serializable
+data class HookParams(val className: String, val methodSig: String)
+
+@Serializable
+data class JsonRpcHookRequest(
+    val jsonrpc: String = "2.0",
+    val method: String,
+    val params: HookParams,
+    val id: Int = 1
+)
+
+@Serializable
+data class JsonRpcHookEventsResponse(
+    val jsonrpc: String,
+    val result: List<HookEvent>? = null,
+    val error: JsonRpcError? = null,
+    val id: Int? = null
+)
+
 object RpcClient {
     private val client = HttpClient(Darwin) {
         install(ContentNegotiation) {
@@ -511,6 +530,31 @@ object RpcClient {
         } catch (e: Exception) {
             Pair(null, "RPC Internal Error: ${e.message}")
         }
+    }
+
+    suspend fun toggleHook(className: String, methodSig: String, enable: Boolean): Boolean {
+        val method = if (enable) "hookMethod" else "unhookMethod"
+        return try {
+            val requestBody = JsonRpcHookRequest(method = method, params = HookParams(className, methodSig))
+            val response: HttpResponse = client.post("http://127.0.0.1:8080/rpc") {
+                contentType(ContentType.Application.Json)
+                setBody(requestBody)
+            }
+            response.status.value in 200..299
+        } catch (e: Exception) { false }
+    }
+
+    suspend fun getHookEvents(): List<HookEvent> {
+        return try {
+            val requestBody = JsonRpcRequestSimple(method = "getHookEvents")
+            val response: HttpResponse = client.post("http://127.0.0.1:8080/rpc") {
+                contentType(ContentType.Application.Json)
+                setBody(requestBody)
+            }
+            if (response.status.value in 200..299) {
+                response.body<JsonRpcHookEventsResponse>().result ?: emptyList()
+            } else emptyList()
+        } catch (e: Exception) { emptyList() }
     }
 }
 
