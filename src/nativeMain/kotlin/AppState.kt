@@ -5,7 +5,8 @@ enum class AppMode {
     DEFAULT,
     DEBUG_ENTRYPOINT,
     DEBUG_CLASS_FILTER,
-    DEBUG_INSPECT_CLASS
+    DEBUG_INSPECT_CLASS,
+    DEBUG_HOOK_WATCH
 }
 
 enum class GadgetInstallStatus {
@@ -117,6 +118,18 @@ data class AppState(
     var selectedHookIndex: Int = 0,
     var hookLogScrollOffset: Int = 0
 ) {
+    fun addHookEvent(event: HookEvent) {
+        val last = hookEvents.lastOrNull()
+        if (last != null && last.target == event.target && event.timestamp - last.timestamp < 500 && last.data == event.data) {
+            last.count++
+        } else {
+            hookEvents.add(event)
+            if (hookEvents.size > 100) {
+                hookEvents.removeAt(0)
+            }
+        }
+    }
+
     fun buildInspectRows(): List<InspectRow> {
         val rows = mutableListOf<InspectRow>()
         

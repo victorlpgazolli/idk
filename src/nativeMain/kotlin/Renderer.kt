@@ -90,6 +90,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderWelcome(buf)
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
+        } else if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+            renderHookWatchMode(buf, state, termWidth, termHeight)
         }
 
         renderFooter(buf, state, termWidth, termHeight)
@@ -106,6 +108,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
             AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [Esc] Count Instances  [Ctrl+C] Quit "
             AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
         }
         val padding = maxOf(0, termWidth - footerText.length)
         
@@ -550,6 +553,94 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         }
 
         ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, rows.size, termWidth)
+    }
+
+    private fun renderHookWatchMode(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
+        val leftWidth = (termWidth * 0.4).toInt()
+        val rightWidth = termWidth - leftWidth - 1
+        val contentHeight = termHeight - 2 // Footer and one line for header
+
+        buf.append(Ansi.CURSOR_HOME)
+        buf.append(Ansi.moveTo(1, 1))
+        
+        // Header
+        val leftTitle = " Monitored Items ".padStart((leftWidth + 17) / 2).padEnd(leftWidth)
+        val rightTitle = " Live Event Log ".padStart((rightWidth + 16) / 2).padEnd(rightWidth)
+        buf.append("\u001b[7m").append(leftTitle).append(Ansi.RESET)
+        buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
+        buf.append("\u001b[7m").append(rightTitle).append(Ansi.RESET).append("\n")
+
+        val activeHooksList = state.activeHooks.toList()
+        
+        for (y in 0 until contentHeight) {
+            buf.append(Ansi.moveTo(y + 2, 1))
+            
+            // Left Panel: Monitored Items
+            if (y < activeHooksList.size) {
+                val hook = activeHooksList[y]
+                val isSelected = y == state.selectedHookIndex
+                val selectionMarker = ListRenderer.selectionPrefix(isSelected, "")
+                val check = if (hook.enabled) "[✓]" else "[ ]"
+                val color = if (hook.type == HookType.METHOD) Ansi.YELLOW else Ansi.BLUE
+                
+                var line = "$selectionMarker$check $color${hook.memberSignature}${Ansi.RESET}"
+                // Truncate if too long
+                val visibleLen = selectionMarker.length + check.length + 1 + hook.memberSignature.length
+                if (visibleLen > leftWidth) {
+                    line = line.take(leftWidth - 3 + (line.length - visibleLen)) + "..."
+                } else {
+                    line += " ".repeat(leftWidth - visibleLen)
+                }
+                buf.append(line)
+            } else {
+                buf.append(" ".repeat(leftWidth))
+            }
+
+            buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
+
+            // Right Panel: Live Event Log
+            val logIndex = state.hookEvents.size - 1 - y - state.hookLogScrollOffset
+            if (logIndex >= 0 && logIndex < state.hookEvents.size) {
+                val event = state.hookEvents[logIndex]
+                val time = formatTime(event.timestamp)
+                val typeLabel = if (event.target.type == HookType.METHOD) "CALL" else "CHANGE"
+                val countStr = if (event.count > 1) " (x${event.count})" else ""
+                
+                val content = when (event.target.type) {
+                    HookType.METHOD -> {
+                        val args = event.data["args"] ?: ""
+                        val ret = event.data["return"] ?: ""
+                        "$typeLabel ${event.target.memberSignature}($args) -> $ret"
+                    }
+                    HookType.FIELD -> {
+                        val value = event.data["value"] ?: ""
+                        "$typeLabel ${event.target.memberSignature}: $value"
+                    }
+                }
+                
+                var logLine = "${Ansi.DIM}[$time]${Ansi.RESET} $content${Ansi.YELLOW}$countStr${Ansi.RESET}"
+                val visibleLogLen = 11 + content.length + countStr.length // [HH:mm:ss] is 10 chars + 1 space
+                
+                if (visibleLogLen > rightWidth) {
+                    logLine = logLine.take(rightWidth - 3 + (logLine.length - visibleLogLen)) + "..."
+                } else {
+                    logLine += " ".repeat(rightWidth - visibleLogLen)
+                }
+                buf.append(logLine)
+            } else {
+                buf.append(" ".repeat(rightWidth))
+            }
+            buf.append("\n")
+        }
+    }
+
+    private fun formatTime(timestamp: Long): String {
+        // Simple time formatting for Kotlin Native without extra libs
+        // Assuming timestamp is in ms.
+        val seconds = (timestamp / 1000) % 60
+        val minutes = (timestamp / (1000 * 60)) % 60
+        val hours = (timestamp / (1000 * 60 * 60) + 24 - 3) % 24 // Quick hack for UTC-3, or just keep it simple
+        return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
     }
 
     private fun highlightJavaSignature(signature: String): String {
