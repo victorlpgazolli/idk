@@ -15,8 +15,6 @@ import urllib
 import argparse
 import traceback
 
-from flask import logging
-
 
 ################################################################################
 #

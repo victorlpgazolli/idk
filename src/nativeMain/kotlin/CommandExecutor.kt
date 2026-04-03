@@ -13,8 +13,12 @@ object CommandExecutor {
     private val charPool = ('a'..'z') + ('0'..'9')
 
     fun execute(command: String, state: AppState, scope: CoroutineScope) {
-        when (command) {
+        val parts = command.split(" ")
+        val baseCommand = parts[0]
+
+        when (baseCommand) {
             "debug" -> handleDebug(state, scope)
+            "exit" -> state.running = false
             else -> {}
         }
     }
@@ -76,23 +80,35 @@ object CommandExecutor {
     }
 
     private fun handleDebug(state: AppState, scope: CoroutineScope) {
-        // Set initial status and return immediately — async flow
-        state.gadgetInstallStatus = GadgetInstallStatus.VALIDATING
+        state.gadgetInstallStatus = GadgetInstallStatus.PREPARING_ADB
         state.gadgetErrorMessage = null
         state.gadgetSpinnerFrame = 0
 
         scope.launch {
-            // Transition to RUNNING_CHECKS after ping/initial validation
-            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.RUNNING_CHECKS, null)
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.PREPARING_ADB, null)
 
-            val (status, errorMessage) = RpcClient.installGadget()
+            val (envResult, envError) = RpcClient.prepareEnvironment()
+            if (envError != null || envResult == null) {
+                state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, envError ?: "Failed to prepare ADB environment")
+                return@launch
+            }
 
-            when (status) {
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.DEPLOYING_GADGET, null)
+            val (pushStatus, pushError) = RpcClient.checkOrPushGadget()
+            if (pushError != null) {
+                state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, pushError)
+                return@launch
+            }
+
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.INJECTING_JDWP, null)
+            val (injectStatus, injectError) = RpcClient.injectJdwp(envResult.target, envResult.port, envResult.package_name)
+            
+            when (injectStatus) {
                 "completed", "gadget_detected" -> {
                     state.sharedGadgetResult.value = Pair(GadgetInstallStatus.SUCCESS, null)
                 }
                 else -> {
-                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, errorMessage ?: "Unknown error")
+                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, injectError ?: "Unknown error during JDWP injection")
                 }
             }
         }

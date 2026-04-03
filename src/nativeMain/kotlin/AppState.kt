@@ -10,8 +10,9 @@ enum class AppMode {
 
 enum class GadgetInstallStatus {
     IDLE,
-    VALIDATING,
-    RUNNING_CHECKS,
+    PREPARING_ADB,
+    DEPLOYING_GADGET,
+    INJECTING_JDWP,
     SUCCESS,
     ERROR
 }
@@ -29,8 +30,9 @@ sealed class InspectRow {
     data class StaticAttributeRow(val attribute: String) : InspectRow()
     data class StaticMethodRow(val method: String) : InspectRow()
     data class SectionInstancesRow(val isExpanded: Boolean) : InspectRow()
-    data class InstanceRow(val instance: InstanceInfo, val isExpanded: Boolean, val depth: Int = 0) : InspectRow()
-    data class InstanceAttributeRow(val instanceId: String, val attribute: InstanceAttribute, val isExpanded: Boolean = false, val depth: Int = 0) : InspectRow()
+    data class InstanceRow(val instance: InstanceInfo, val isExpanded: Boolean, val isLast: Boolean = false) : InspectRow()
+    data class InstanceAttributeRow(val instanceId: String, val attribute: InstanceAttribute, val isExpanded: Boolean = false, val treeFlags: List<Boolean> = emptyList()) : InspectRow()
+    data class InfoRow(val text: String, val treeFlags: List<Boolean>, val isError: Boolean = false, val isDim: Boolean = true) : InspectRow()
 }
 
 data class AppState(
@@ -39,6 +41,8 @@ data class AppState(
     var suggestions: List<Command> = emptyList(),
     var selectedSuggestionIndex: Int = -1,
     var commandHistory: MutableList<String> = mutableListOf(),
+    var historyNavigationIndex: Int = -1,
+    var savedInputBeforeHistory: String = "",
     var ctrlCPressed: Boolean = false,
     var ctrlCTimestamp: Long = 0L,
     var running: Boolean = true,
@@ -99,13 +103,26 @@ data class AppState(
 
         rows.add(InspectRow.SectionInstancesRow(inspectInstancesExpanded))
         if (inspectInstancesExpanded) {
+            if (isFetchingInstancesList) {
+                rows.add(InspectRow.InfoRow("Fetching instances...", emptyList()))
+            }
             val list = inspectInstancesList
             if (list != null) {
-                list.forEach { instance ->
+                list.forEachIndexed { index, instance ->
                     val isExpanded = inspectExpandedInstances.containsKey(instance.id)
-                    rows.add(InspectRow.InstanceRow(instance, isExpanded, 0))
+                    val isLast = index == list.lastIndex
+                    rows.add(InspectRow.InstanceRow(instance, isExpanded, isLast))
                     if (isExpanded) {
-                        appendAttributesRecursively(instance.id, 1, rows, setOf(instance.id))
+                        val errorStr = inspectExpandedInstancesError[instance.id]
+                        val childFlags = listOf(isLast)
+                        if (errorStr != null) {
+                            rows.add(InspectRow.InfoRow("Error loading attributes: $errorStr", childFlags, isError = true))
+                        } else if (inspectExpandedInstances[instance.id] == null) {
+                            rows.add(InspectRow.InfoRow("Loading attributes...", childFlags))
+                        } else {
+                            rows.add(InspectRow.InfoRow("Attributes of this instance: (press R to refresh)", childFlags, isDim = true))
+                            appendAttributesRecursively(instance.id, childFlags, rows, setOf(instance.id))
+                        }
                     }
                 }
             }
@@ -113,20 +130,29 @@ data class AppState(
         return rows
     }
 
-    private fun appendAttributesRecursively(nodeId: String, depth: Int, rows: MutableList<InspectRow>, visited: Set<String>) {
+    private fun appendAttributesRecursively(nodeId: String, ancestorIsLast: List<Boolean>, rows: MutableList<InspectRow>, visited: Set<String>) {
         val attrs = inspectExpandedInstances[nodeId]
         if (attrs != null) {
-            attrs.forEach { attr ->
+            attrs.forEachIndexed { index, attr ->
+                val isLastChild = index == attrs.lastIndex
                 val canExpand = attr.childId != null
                 val isCycle = canExpand && attr.childId!! in visited
                 val isExpanded = canExpand && !isCycle && inspectExpandedInstances.containsKey(attr.childId!!)
                 
-                // If it's a cycle but user expanded it, we might want to forcefully mark it as not expanded to prevent looping visual
+                val treeFlags = ancestorIsLast + isLastChild
                 val actualExpanded = if (isCycle) false else isExpanded
 
-                rows.add(InspectRow.InstanceAttributeRow(nodeId, attr, actualExpanded, depth))
+                rows.add(InspectRow.InstanceAttributeRow(nodeId, attr, actualExpanded, treeFlags))
                 if (actualExpanded) {
-                    appendAttributesRecursively(attr.childId!!, depth + 1, rows, visited + attr.childId!!)
+                    val errorStr = inspectExpandedInstancesError[attr.childId!!]
+                    if (errorStr != null) {
+                        rows.add(InspectRow.InfoRow("Error loading attributes: $errorStr", treeFlags, isError = true))
+                    } else if (inspectExpandedInstances[attr.childId!!] == null) {
+                        rows.add(InspectRow.InfoRow("Loading attributes...", treeFlags))
+                    } else {
+                        rows.add(InspectRow.InfoRow("Attributes of this instance: (press R to refresh)", treeFlags, isDim = true))
+                        appendAttributesRecursively(attr.childId!!, treeFlags, rows, visited + attr.childId!!)
+                    }
                 }
             }
         }

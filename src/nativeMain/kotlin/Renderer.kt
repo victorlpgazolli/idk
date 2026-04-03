@@ -40,8 +40,6 @@ object Renderer {
     private const val J_METHOD = "\u001b[38;5;220m"    // Yellow
     private const val J_NUMBER = "\u001b[38;5;173m"    // Orange/Brown
     
-    private val SPINNER_FRAMES = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-
     private const val LOGO = """
 ${K_MAGENTA}      ▄▄▄▄▄  ${K_MAGENTA}▄▄▄▄▄▄▄▄▄    ${K_PINK}▄▄▄▄    ▄▄▄▄ $RESET
 ${K_MAGENTA}      █████  ${K_MAGENTA}██████████▄  ${K_PINK}█████ ▄████▀ $RESET
@@ -80,22 +78,41 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderClassFetchStatus(buf, state)
             renderCtrlCWarning(buf, state)
             renderInputBox(buf, state, width)
-            renderClassList(buf, state, termHeight)
+            renderClassList(buf, state, termWidth, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
             renderCtrlCWarning(buf, state)
             renderInspectHeader(buf, state, width)
-            renderInspectClassList(buf, state, termHeight)
+            buf.append("\n")
+            renderInspectClassList(buf, state, termWidth, termHeight)
         } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
             renderWelcome(buf)
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
         }
 
+        renderFooter(buf, state, termWidth, termHeight)
+
         buf.append(Ansi.SHOW_CURSOR)
 
         print(buf.toString())
         Terminal.flush()
+    }
+
+    private fun renderFooter(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
+        val footerText = when (state.mode) {
+            AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
+            AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
+            AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [Esc] Count Instances  [Ctrl+C] Quit "
+            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+        }
+        val padding = maxOf(0, termWidth - footerText.length)
+        
+        buf.append(Ansi.moveTo(termHeight, 1))
+        buf.append("\u001b[7m") // Reverse Video
+        buf.append(footerText)
+        buf.append(" ".repeat(padding))
+        buf.append(Ansi.RESET)
     }
 
     private fun renderLogo(buf: StringBuilder) {
@@ -127,12 +144,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         
         for ((index, option) in options.withIndex()) {
             val isSelected = index == state.debugEntrypointIndex
-            
-            if (isSelected) {
-                buf.append("${Ansi.GREEN}  > ${Ansi.WHITE}$option${Ansi.RESET}\n")
-            } else {
-                buf.append("    ${Ansi.DIM}$option${Ansi.RESET}\n")
-            }
+            val prefix = ListRenderer.selectionPrefix(isSelected, "  ")
+            val color = if (isSelected) Ansi.WHITE else Ansi.DIM
+            buf.append(prefix).append(color).append(option).append(Ansi.RESET).append("\n")
         }
     }
 
@@ -155,30 +169,36 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderGadgetStatus(buf: StringBuilder, state: AppState) {
-        when (state.gadgetInstallStatus) {
-            GadgetInstallStatus.VALIDATING -> {
-                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-                buf.append("   $LIGHT_GRAY$frame Validating debug status$RESET\n")
+        val status = state.gadgetInstallStatus
+        val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
+
+        fun step(title: String, activeState: GadgetInstallStatus, pastStates: List<GadgetInstallStatus>): String {
+            return when {
+                status in pastStates || status == GadgetInstallStatus.SUCCESS -> "   [${Ansi.GREEN}✓${Ansi.RESET}] ${Ansi.DIM}$title${Ansi.RESET}"
+                status == activeState -> "   [${LIGHT_GRAY}$frame${Ansi.RESET}] ${Ansi.WHITE}$title${Ansi.RESET}"
+                else -> "   [ ] ${Ansi.DIM}$title${Ansi.RESET}"
             }
-            GadgetInstallStatus.RUNNING_CHECKS -> {
-                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-                buf.append("   $LIGHT_GRAY$frame Running checks to know if debugger is up and running$RESET\n")
-            }
-            GadgetInstallStatus.ERROR -> {
-                val errorMsg = state.gadgetErrorMessage ?: "Unknown error"
-                buf.append("   ${Ansi.RED}Caught an error: $errorMsg${Ansi.RESET}\n")
-            }
-            else -> {}
+        }
+
+        if (status != GadgetInstallStatus.IDLE) {
+            buf.append(step("Preparing adb environment", GadgetInstallStatus.PREPARING_ADB, listOf(GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
+            buf.append(step("Deploying frida-gadget.so", GadgetInstallStatus.DEPLOYING_GADGET, listOf(GadgetInstallStatus.INJECTING_JDWP))).append("\n")
+            buf.append(step("Injecting via JDWP...", GadgetInstallStatus.INJECTING_JDWP, emptyList())).append("\n")
+        }
+
+        if (status == GadgetInstallStatus.ERROR) {
+            val errorMsg = state.gadgetErrorMessage ?: "Unknown error"
+            buf.append("   ${Ansi.RED}Caught an error: $errorMsg${Ansi.RESET}\n")
         }
     }
 
     private fun renderClassFetchStatus(buf: StringBuilder, state: AppState) {
         if (state.isFetchingClasses) {
-            val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+            val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
             val suffix = if (state.inputBuffer.length < 2) " (this could take a while)" else ""
             buf.append("   $LIGHT_GRAY$frame Fetching available classes$suffix$RESET\n")
         } else if (state.isFetchingInstances) {
-            val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
+            val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
             buf.append("   $LIGHT_GRAY$frame Searching instances...$RESET\n")
         }
     }
@@ -247,10 +267,11 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         for ((index, cmd) in state.suggestions.withIndex()) {
             val isSelected = index == state.selectedSuggestionIndex
+            val prefix = ListRenderer.selectionPrefix(isSelected, "  ")
             val nameColor = if (isSelected) Ansi.GREEN else Ansi.DIM
             val descColor = Ansi.DIM
 
-            buf.append("  ")
+            buf.append(prefix)
             buf.append(nameColor)
             buf.append(cmd.name.padEnd(17))
             buf.append(Ansi.RESET)
@@ -261,7 +282,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         }
     }
 
-    private fun renderClassList(buf: StringBuilder, state: AppState, termHeight: Int) {
+    private fun renderClassList(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         if (state.rpcError != null) {
             buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
             return
@@ -273,22 +294,25 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         }
 
         if (state.displayedClasses.isEmpty() && state.inputBuffer.isNotEmpty() && !state.isFetchingClasses) {
-            buf.append(Ansi.DIM).append("  No matching classes found.").append(Ansi.RESET).append("\n")
+            val emptyBox = """
+                ${Ansi.DIM}╭─────────────────────────────╮${Ansi.RESET}
+                ${Ansi.DIM}│${Ansi.RESET}      No matches found       ${Ansi.DIM}│${Ansi.RESET}
+                ${Ansi.DIM}╰─────────────────────────────╯${Ansi.RESET}
+            """.trimIndent()
+            for (line in emptyBox.lines()) {
+                buf.append("   ").append(line).append("\n")
+            }
             return
         }
 
-        val fixedLines = 19
+        val fixedLines = 20 // +1 for footer
         val maxItems = maxOf(3, termHeight - fixedLines - 1)
-        var startIdx = 0
-        if (state.selectedClassIndex > maxItems / 2) {
-            startIdx = state.selectedClassIndex - maxItems / 2
-        }
-        val endIdx = minOf(state.displayedClasses.size, startIdx + maxItems)
+        val (startIdx, endIdx) = ListRenderer.computeViewport(state.displayedClasses.size, state.selectedClassIndex, maxItems)
         
         for (i in startIdx until endIdx) {
             val className = state.displayedClasses[i]
             val isSelected = i == state.selectedClassIndex
-            val prefix = if (isSelected) "${Ansi.GREEN}  > " else "    "
+            val prefix = ListRenderer.selectionPrefix(isSelected, "  ")
             val suffix = Ansi.RESET
             
             val query = state.lastSearchedParam
@@ -316,7 +340,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         break
                     }
                     sb.append(baseColor).append(text.substring(currentPos, start))
-                    sb.append(Ansi.RED).append(text.substring(start, start + query.length))
+                    sb.append(Ansi.YELLOW).append(text.substring(start, start + query.length))
                     currentPos = start + query.length
                 }
                 return sb.toString()
@@ -335,12 +359,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             buf.append("\n")
         }
         
-        if (state.displayedClasses.size > endIdx) {
-             buf.append(Ansi.DIM)
-             buf.append("    ... and ${state.displayedClasses.size - endIdx} more")
-             buf.append(Ansi.RESET)
-             buf.append("\n")
-        }
+        ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, state.displayedClasses.size, termWidth)
     }
 
     private fun renderInspectHeader(buf: StringBuilder, state: AppState, width: Int) {
@@ -348,17 +367,23 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val topBorder = "╭" + "─".repeat(innerWidth) + "╮"
         val bottomBorder = "╰" + "─".repeat(innerWidth) + "╯"
 
-        val title = " Inspecting: ${state.inspectTargetClassName} "
+        val maxTitleLen = maxOf(10, innerWidth - 15)
+        val displayClassName = if (state.inspectTargetClassName.length > maxTitleLen) {
+            "..." + state.inspectTargetClassName.takeLast(maxTitleLen - 3)
+        } else {
+            state.inspectTargetClassName
+        }
+        val title = " Inspecting: $displayClassName "
         val padding = maxOf(0, innerWidth - title.length)
 
         buf.append(Ansi.DIM).append(" ").append(topBorder).append(Ansi.RESET).append("\n")
         buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
         buf.append(K_VIOLET).append(title).append(Ansi.RESET)
         buf.append(" ".repeat(padding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
-        buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n\n")
+        buf.append(Ansi.DIM).append(" ").append(bottomBorder).append(Ansi.RESET).append("\n")
     }
 
-    private fun renderInspectClassList(buf: StringBuilder, state: AppState, termHeight: Int) {
+    private fun renderInspectClassList(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         if (state.rpcError != null) {
             buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
             return
@@ -371,26 +396,58 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         val rows = state.buildInspectRows()
         if (rows.isEmpty()) {
-            buf.append(Ansi.DIM).append("  No items to display.").append(Ansi.RESET).append("\n")
+            val emptyBox = """
+                ${Ansi.DIM}╭─────────────────────────────╮${Ansi.RESET}
+                ${Ansi.DIM}│${Ansi.RESET}    No items to display      ${Ansi.DIM}│${Ansi.RESET}
+                ${Ansi.DIM}╰─────────────────────────────╯${Ansi.RESET}
+            """.trimIndent()
+            for (line in emptyBox.lines()) {
+                buf.append("   ").append(line).append("\n")
+            }
             return
         }
 
-        val maxItems = if (termHeight > 15) termHeight - 15 else 20
-        var startIdx = 0
-        if (state.selectedClassIndex > maxItems / 2) {
-            startIdx = state.selectedClassIndex - maxItems / 2
-        }
-        val endIdx = minOf(rows.size, startIdx + maxItems)
+        val fixedLines = 18 
+        val maxItems = maxOf(3, termHeight - fixedLines)
+        val (startIdx, endIdx) = ListRenderer.computeViewport(rows.size, state.selectedClassIndex, maxItems)
 
         for (i in startIdx until endIdx) {
             val row = rows[i]
             val isSelected = i == state.selectedClassIndex
-            val selectionMarker = if (isSelected) "${Ansi.GREEN}   >  ${Ansi.RESET}" else "      "
+            val selectionMarker = ListRenderer.selectionPrefix(isSelected, "    ")
             
+            var visualIndent = 8
             val baseIndentStr = when (row) {
-                is InspectRow.StaticAttributeRow, is InspectRow.StaticMethodRow -> "    "
-                is InspectRow.InstanceRow -> " ".repeat(row.depth * 8)
-                is InspectRow.InstanceAttributeRow -> " ".repeat(row.depth * 8)
+                is InspectRow.StaticAttributeRow, is InspectRow.StaticMethodRow -> {
+                    visualIndent += 4
+                    "    "
+                }
+                is InspectRow.InstanceRow -> {
+                    visualIndent += 8
+                    "        "
+                }
+                is InspectRow.InstanceAttributeRow -> {
+                    val indentBuilder = StringBuilder("        ")
+                    row.treeFlags.forEachIndexed { index, isLast ->
+                        visualIndent += 4
+                        if (index == row.treeFlags.lastIndex) {
+                            indentBuilder.append(if (isLast) "└── " else "├── ")
+                        } else {
+                            indentBuilder.append(if (isLast) "    " else "│   ")
+                        }
+                    }
+                    indentBuilder.toString()
+                }
+                is InspectRow.InfoRow -> {
+                    val indentBuilder = StringBuilder("        ")
+                    row.treeFlags.forEach { isLast ->
+                        visualIndent += 4
+                        indentBuilder.append(if (isLast) "    " else "│   ")
+                    }
+                    visualIndent += 4
+                    indentBuilder.append("    ")
+                    indentBuilder.toString()
+                }
                 else -> ""
             }
             val prefix = "$baseIndentStr$selectionMarker"
@@ -404,10 +461,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val countInfo = if (state.inspectInstancesList != null) " (${state.inspectInstancesTotalCount})" else ""
                     val actionText = "Found instances$countInfo"
                     buf.append(prefix).append(K_PURPLE).append("2. ").append(actionText).append(Ansi.RESET).append("\n")
-                    if (state.isFetchingInstancesList) {
-                        val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-                        buf.append("      ").append("    $LIGHT_GRAY$frame Fetching instances...$RESET\n")
-                    }
                 }
                 is InspectRow.StaticAttributeRow -> {
                     buf.append(prefix).append("    ").append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
@@ -416,21 +469,15 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     buf.append(prefix).append("    ").append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
-                    buf.append(prefix).append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(row.instance.summary).append(Ansi.RESET).append("\n")
-                    if (row.isExpanded) {
-                        val errorStr = state.inspectExpandedInstancesError[row.instance.id]
-                        if (errorStr != null) {
-                             buf.append(baseIndentStr).append("      ").append("        ${Ansi.RED}Error loading attributes: $errorStr${Ansi.RESET}\n")
-                        } else {
-                            val isFetchingAttrs = state.inspectExpandedInstances[row.instance.id] == null
-                            if (isFetchingAttrs) {
-                                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-                                buf.append(baseIndentStr).append("      ").append("        $LIGHT_GRAY$frame Loading attributes...$RESET\n")
-                            } else {
-                                buf.append(baseIndentStr).append("      ").append("        ${DIM_GRAY}Attributes of this instance: (press ${Ansi.WHITE}R${DIM_GRAY} to refresh)${Ansi.RESET}\n")
-                            }
-                        }
+                    val treeLine = if (row.isLast) "└── " else "├── "
+                    val summaryMax = maxOf(10, termWidth - visualIndent - 25)
+                    val summary = if (row.instance.summary.length > summaryMax) {
+                        row.instance.summary.take(summaryMax - 3) + "..."
+                    } else {
+                        row.instance.summary
                     }
+                    buf.append(prefix).append(Ansi.DIM).append(treeLine).append(Ansi.RESET)
+                        .append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(summary).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceAttributeRow -> {
                     val typeStr = "(${row.attribute.type})"
@@ -442,39 +489,38 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     }
                     val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
                     
+                    val valueMax = maxOf(10, termWidth - visualIndent - row.attribute.name.length - typeStr.length - 10)
+                    val displayValue = if (row.attribute.value.length > valueMax) {
+                        row.attribute.value.take(valueMax - 3) + "..."
+                    } else {
+                        row.attribute.value
+                    }
+
                     buf.append(prefix)
                     buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
                     buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
                     buf.append(" : ")
                     if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
-                        buf.append(valColor).append("\"").append(row.attribute.value).append("\"").append(Ansi.RESET)
+                        buf.append(valColor).append("\"").append(displayValue).append("\"").append(Ansi.RESET)
                     } else {
-                        buf.append(valColor).append(row.attribute.value).append(Ansi.RESET)
+                        buf.append(valColor).append(displayValue).append(Ansi.RESET)
                     }
                     buf.append("\n")
-
-                    if (row.isExpanded && row.attribute.childId != null) {
-                        val errorStr = state.inspectExpandedInstancesError[row.attribute.childId]
-                        if (errorStr != null) {
-                            buf.append(baseIndentStr).append("      ").append("        ${Ansi.RED}Error loading attributes: $errorStr${Ansi.RESET}\n")
-                        } else {
-                            val isFetchingAttrs = state.inspectExpandedInstances[row.attribute.childId] == null
-                            if (isFetchingAttrs) {
-                                val frame = SPINNER_FRAMES[state.gadgetSpinnerFrame % SPINNER_FRAMES.size]
-                                buf.append(baseIndentStr).append("      ").append("        $LIGHT_GRAY$frame Loading attributes...$RESET\n")
-                            } else {
-                                buf.append(baseIndentStr).append("      ").append("        ${DIM_GRAY}Attributes of this instance: (press ${Ansi.WHITE}R${DIM_GRAY} to refresh)${Ansi.RESET}\n")
-                            }
-                        }
+                }
+                is InspectRow.InfoRow -> {
+                    val color = if (row.isError) Ansi.RED else if (row.isDim) Ansi.DIM else Ansi.RESET
+                    val text = if (row.text.contains("loading", ignoreCase = true)) {
+                        val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
+                        "$frame ${row.text}"
+                    } else {
+                        row.text
                     }
+                    buf.append(prefix).append(color).append(text).append(Ansi.RESET).append("\n")
                 }
             }
         }
 
-        if (rows.size > endIdx) {
-             val diff = rows.size - endIdx
-             buf.append(Ansi.DIM).append("    ... and $diff more items").append(Ansi.RESET).append("\n")
-        }
+        ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, rows.size, termWidth)
     }
 
     private fun highlightJavaSignature(signature: String): String {

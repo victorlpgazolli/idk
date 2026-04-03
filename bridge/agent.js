@@ -62,11 +62,16 @@ rpc.exports = {
 
     countinstances: function(className) {
         var count = 0;
+        var seen = {};
         try {
             Java.perform(function() {
                 Java.choose(className, {
                     onMatch: function(instance) {
-                        count++;
+                        var id = instance.$handle ? instance.$handle.toString() : instance.hashCode().toString();
+                        if (!seen[id]) {
+                            seen[id] = true;
+                            count++;
+                        }
                     },
                     onComplete: function() {}
                 });
@@ -80,20 +85,24 @@ rpc.exports = {
     listinstances: function(className) {
         var instances = [];
         var total = 0;
+        var seen = {};
         try {
             Java.perform(function() {
                 Java.choose(className, {
                     onMatch: function(instance) {
-                        total++;
-                        if (instances.length < 50) {
-                            var id = instance.hashCode().toString();
-                            var hndl = instance.$handle ? instance.$handle.toString() : "";
-                            instanceCache[id] = instance;
-                            instances.push({
-                                id: id,
-                                handle: hndl,
-                                summary: instance.toString()
-                            });
+                        var id = instance.$handle ? instance.$handle.toString() : instance.hashCode().toString();
+                        if (!seen[id]) {
+                            seen[id] = true;
+                            total++;
+                            if (instances.length < 50) {
+                                var hndl = instance.$handle ? instance.$handle.toString() : "";
+                                instanceCache[id] = instance;
+                                instances.push({
+                                    id: id,
+                                    handle: hndl,
+                                    summary: instance.toString()
+                                });
+                            }
                         }
                     },
                     onComplete: function() {}

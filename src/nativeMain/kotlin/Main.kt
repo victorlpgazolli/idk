@@ -37,6 +37,18 @@ fun initDebugClassFilter(state: AppState, scope: CoroutineScope) {
     }
 }
 
+fun onInputChanged(state: AppState, resetCtrlC: Boolean = true) {
+    if (resetCtrlC) state.ctrlCPressed = false
+    state.historyNavigationIndex = -1
+    
+    if (state.mode == AppMode.DEFAULT) {
+        state.suggestions = CommandRegistry.search(state.inputBuffer)
+        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+    } else {
+        state.lastInputTimestamp = currentTimeMillis()
+    }
+}
+
 fun main(args: Array<String>) {
     CacheManager.ensureCacheDir()
 
@@ -63,6 +75,7 @@ fun main(args: Array<String>) {
     }
 
     val state = AppState(mode = initialMode)
+    state.commandHistory = HistoryStore.load()
     val scope = CoroutineScope(Dispatchers.Default)
 
     if (initialMode == AppMode.DEBUG_CLASS_FILTER) {
@@ -145,42 +158,27 @@ fun main(args: Array<String>) {
                         }
                     }
                 } else {
-                    state.ctrlCPressed = false
                     state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
                             key.c +
                             state.inputBuffer.substring(state.cursorPosition)
                     state.cursorPosition++
-                    
-                    if (state.mode == AppMode.DEFAULT) {
-                        state.suggestions = CommandRegistry.search(state.inputBuffer)
-                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
-                    } else {
-                        state.lastInputTimestamp = currentTimeMillis()
-                    }
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
 
             is KeyEvent.Backspace -> {
                 if (state.cursorPosition > 0) {
-                    state.ctrlCPressed = false
                     state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition - 1) +
                             state.inputBuffer.substring(state.cursorPosition)
                     state.cursorPosition--
-                    
-                    if (state.mode == AppMode.DEFAULT) {
-                        state.suggestions = CommandRegistry.search(state.inputBuffer)
-                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
-                    } else {
-                        state.lastInputTimestamp = currentTimeMillis()
-                    }
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
 
             is KeyEvent.OptionBackspace -> {
                 if (state.cursorPosition > 0) {
-                    state.ctrlCPressed = false
                     var pos = state.cursorPosition - 1
                     while (pos >= 0 && !state.inputBuffer[pos].isLetterOrDigit()) pos--
                     while (pos >= 0 && state.inputBuffer[pos].isLetterOrDigit()) pos--
@@ -189,35 +187,50 @@ fun main(args: Array<String>) {
                     state.inputBuffer = state.inputBuffer.substring(0, newCursor) + 
                                         state.inputBuffer.substring(state.cursorPosition)
                     state.cursorPosition = newCursor
-                    
-                    if (state.mode == AppMode.DEFAULT) {
-                        state.suggestions = CommandRegistry.search(state.inputBuffer)
-                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
-                    } else {
-                        state.lastInputTimestamp = currentTimeMillis()
-                    }
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
 
             is KeyEvent.OptionLeft -> {
-                state.ctrlCPressed = false
                 var pos = state.cursorPosition - 1
                 if (pos >= 0) {
                     while (pos >= 0 && !state.inputBuffer[pos].isLetterOrDigit()) pos--
                     while (pos >= 0 && state.inputBuffer[pos].isLetterOrDigit()) pos--
                     state.cursorPosition = pos + 1
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
 
             is KeyEvent.OptionRight -> {
-                state.ctrlCPressed = false
                 var pos = state.cursorPosition
                 if (pos < state.inputBuffer.length) {
                     while (pos < state.inputBuffer.length && !state.inputBuffer[pos].isLetterOrDigit()) pos++
                     while (pos < state.inputBuffer.length && state.inputBuffer[pos].isLetterOrDigit()) pos++
                     state.cursorPosition = pos
+                    onInputChanged(state)
+                    Renderer.render(state)
+                }
+            }
+
+            is KeyEvent.CmdLeft, is KeyEvent.CtrlA -> {
+                state.cursorPosition = 0
+                onInputChanged(state)
+                Renderer.render(state)
+            }
+
+            is KeyEvent.CmdRight, is KeyEvent.CtrlE -> {
+                state.cursorPosition = state.inputBuffer.length
+                onInputChanged(state)
+                Renderer.render(state)
+            }
+
+            is KeyEvent.CmdBackspace -> {
+                if (state.cursorPosition > 0) {
+                    state.inputBuffer = state.inputBuffer.substring(state.cursorPosition)
+                    state.cursorPosition = 0
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
@@ -230,6 +243,16 @@ fun main(args: Array<String>) {
                     if (state.suggestions.isNotEmpty()) {
                         state.selectedSuggestionIndex =
                             (state.selectedSuggestionIndex + 1).coerceAtMost(state.suggestions.size - 1)
+                        Renderer.render(state)
+                    } else if (state.historyNavigationIndex > -1) {
+                        state.historyNavigationIndex--
+                        if (state.historyNavigationIndex < 0) {
+                            state.historyNavigationIndex = -1
+                            state.inputBuffer = state.savedInputBeforeHistory
+                        } else {
+                            state.inputBuffer = state.commandHistory[state.commandHistory.size - 1 - state.historyNavigationIndex]
+                        }
+                        state.cursorPosition = state.inputBuffer.length
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
@@ -257,6 +280,14 @@ fun main(args: Array<String>) {
                         state.selectedSuggestionIndex =
                             (state.selectedSuggestionIndex - 1).coerceAtLeast(0)
                         Renderer.render(state)
+                    } else if (state.commandHistory.isNotEmpty()) {
+                        if (state.historyNavigationIndex == -1) {
+                            state.savedInputBeforeHistory = state.inputBuffer
+                        }
+                        state.historyNavigationIndex = (state.historyNavigationIndex + 1).coerceAtMost(state.commandHistory.size - 1)
+                        state.inputBuffer = state.commandHistory[state.commandHistory.size - 1 - state.historyNavigationIndex]
+                        state.cursorPosition = state.inputBuffer.length
+                        Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (state.displayedClasses.isNotEmpty()) {
@@ -279,13 +310,12 @@ fun main(args: Array<String>) {
                     val selected = state.suggestions[state.selectedSuggestionIndex]
                     state.inputBuffer = selected.name
                     state.cursorPosition = state.inputBuffer.length
-                    state.suggestions = CommandRegistry.search(state.inputBuffer)
-                    state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
+                    onInputChanged(state)
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER && state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0) {
                     state.inputBuffer = state.displayedClasses[state.selectedClassIndex]
                     state.cursorPosition = state.inputBuffer.length
-                    state.lastInputTimestamp = currentTimeMillis()
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
@@ -296,36 +326,30 @@ fun main(args: Array<String>) {
                         initDebugClassFilter(state, scope)
                     }
                 } else if (state.mode == AppMode.DEFAULT) {
-                    if (state.suggestions.isNotEmpty() && state.selectedSuggestionIndex >= 0) {
-                        val selected = state.suggestions[state.selectedSuggestionIndex]
-                        if (state.inputBuffer == selected.name) {
-                            val cmd = state.inputBuffer
-                            state.commandHistory.add(cmd)
-                            state.inputBuffer = ""
-                            state.cursorPosition = 0
-                            state.suggestions = emptyList()
-                            state.selectedSuggestionIndex = -1
-                            state.ctrlCPressed = false
-                            Renderer.render(state)
-                            CommandExecutor.execute(cmd, state, scope)
-                            Renderer.render(state)
-                        } else {
-                            state.inputBuffer = selected.name
-                            state.cursorPosition = state.inputBuffer.length
-                            state.suggestions = CommandRegistry.search(state.inputBuffer)
-                            state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
-                            Renderer.render(state)
-                        }
-                    } else if (state.inputBuffer.isNotEmpty()) {
-                        val cmd = state.inputBuffer
-                        state.commandHistory.add(cmd)
+                    val commandToExecute = if (state.suggestions.isNotEmpty() && state.selectedSuggestionIndex != -1) {
+                        state.suggestions[state.selectedSuggestionIndex].name
+                    } else {
+                        state.inputBuffer
+                    }
+
+                    if (commandToExecute != state.inputBuffer) {
+                        state.inputBuffer = commandToExecute
+                        state.cursorPosition = state.inputBuffer.length
+                        onInputChanged(state)
+                        Renderer.render(state)
+                    } else if (commandToExecute.isNotBlank()) {
+                        HistoryStore.append(commandToExecute)
+                        state.commandHistory.add(commandToExecute)
+                        
                         state.inputBuffer = ""
                         state.cursorPosition = 0
                         state.suggestions = emptyList()
                         state.selectedSuggestionIndex = -1
                         state.ctrlCPressed = false
+                        state.historyNavigationIndex = -1
+                        
                         Renderer.render(state)
-                        CommandExecutor.execute(cmd, state, scope)
+                        CommandExecutor.execute(commandToExecute, state, scope)
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
@@ -407,6 +431,7 @@ fun main(args: Array<String>) {
             is KeyEvent.ArrowLeft -> {
                 if (state.cursorPosition > 0) {
                     state.cursorPosition--
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
@@ -414,6 +439,7 @@ fun main(args: Array<String>) {
             is KeyEvent.ArrowRight -> {
                 if (state.cursorPosition < state.inputBuffer.length) {
                     state.cursorPosition++
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
@@ -435,15 +461,9 @@ fun main(args: Array<String>) {
 
             is KeyEvent.Delete -> {
                 if (state.cursorPosition < state.inputBuffer.length) {
-                    state.ctrlCPressed = false
                     state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
                             state.inputBuffer.substring(state.cursorPosition + 1)
-                    if (state.mode == AppMode.DEFAULT) {
-                        state.suggestions = CommandRegistry.search(state.inputBuffer)
-                        state.selectedSuggestionIndex = if (state.suggestions.isNotEmpty()) 0 else -1
-                    } else {
-                        state.lastInputTimestamp = currentTimeMillis()
-                    }
+                    onInputChanged(state)
                     Renderer.render(state)
                 }
             }
@@ -465,7 +485,9 @@ fun main(args: Array<String>) {
                 }
 
                 // Gadget install status polling
-                if (state.gadgetInstallStatus == GadgetInstallStatus.VALIDATING || state.gadgetInstallStatus == GadgetInstallStatus.RUNNING_CHECKS) {
+                if (state.gadgetInstallStatus == GadgetInstallStatus.PREPARING_ADB || 
+                    state.gadgetInstallStatus == GadgetInstallStatus.DEPLOYING_GADGET ||
+                    state.gadgetInstallStatus == GadgetInstallStatus.INJECTING_JDWP) {
                     state.gadgetSpinnerFrame++
                     needsRender = true
 
@@ -544,6 +566,13 @@ fun main(args: Array<String>) {
                     if (updatedPkg != null) {
                         state.appPackageName = updatedPkg
                         state.sharedAppPackageName.value = null
+
+                        if (state.inputBuffer.isEmpty()) {
+                            state.inputBuffer = updatedPkg
+                            state.cursorPosition = updatedPkg.length
+                            onInputChanged(state)
+                        }
+
                         if (state.displayedClasses.isNotEmpty()) {
                             state.displayedClasses = CommandExecutor.sortClasses(state.displayedClasses, state.appPackageName)
                             needsRender = true
@@ -602,6 +631,7 @@ fun main(args: Array<String>) {
     }
 
     Terminal.disableRawMode()
+    HistoryStore.save(state.commandHistory)
     print(Ansi.SHOW_CURSOR)
     print(Ansi.CLEAR_SCREEN)
     print(Ansi.CURSOR_HOME)

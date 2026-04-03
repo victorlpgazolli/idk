@@ -17,6 +17,11 @@ sealed class KeyEvent {
     data object OptionBackspace : KeyEvent()
     data object OptionLeft : KeyEvent()
     data object OptionRight : KeyEvent()
+    data object CmdLeft : KeyEvent() // Home
+    data object CmdRight : KeyEvent() // End
+    data object CmdBackspace : KeyEvent()
+    data object CtrlA : KeyEvent()
+    data object CtrlE : KeyEvent()
     data object CtrlC : KeyEvent()
     data object Timeout : KeyEvent()
     data object Unknown : KeyEvent()
@@ -37,10 +42,13 @@ object InputHandler {
         if (c == -1) return KeyEvent.Timeout
 
         return when (c) {
+            1 -> KeyEvent.CtrlA // Ctrl-A
             3 -> KeyEvent.CtrlC
+            5 -> KeyEvent.CtrlE // Ctrl-E
             9 -> KeyEvent.Tab
             13 -> KeyEvent.Enter
-            23 -> KeyEvent.OptionBackspace // Ctrl-W maps to deleting backward word natively
+            21 -> KeyEvent.CmdBackspace // Ctrl-U
+            23 -> KeyEvent.OptionBackspace // Ctrl-W
             127 -> KeyEvent.Backspace
             27 -> {
                 val next = readByte()
@@ -56,9 +64,34 @@ object InputHandler {
                     when (b) {
                         'A'.code -> KeyEvent.ArrowUp
                         'B'.code -> KeyEvent.ArrowDown
-                        'C'.code -> if (seqStr.contains("3")) KeyEvent.OptionRight else KeyEvent.ArrowRight
-                        'D'.code -> if (seqStr.contains("3")) KeyEvent.OptionLeft else KeyEvent.ArrowLeft
-                        '~'.code -> if (seqStr == "3" || seqStr.endsWith(";3")) KeyEvent.Delete else KeyEvent.Unknown
+                        'C'.code -> {
+                            when {
+                                seqStr.contains("9") || seqStr.contains("10") -> KeyEvent.CmdRight
+                                seqStr.contains("3") || seqStr.contains("5") -> KeyEvent.OptionRight
+                                else -> KeyEvent.ArrowRight
+                            }
+                        }
+                        'D'.code -> {
+                            when {
+                                seqStr.contains("9") || seqStr.contains("10") -> KeyEvent.CmdLeft
+                                seqStr.contains("3") || seqStr.contains("5") -> KeyEvent.OptionLeft
+                                else -> KeyEvent.ArrowLeft
+                            }
+                        }
+                        'H'.code -> KeyEvent.CmdLeft // Home
+                        'F'.code -> KeyEvent.CmdRight // End
+                        '~'.code -> when {
+                            seqStr == "3" || seqStr.endsWith(";3") -> KeyEvent.Delete
+                            seqStr == "1" || seqStr == "7" -> KeyEvent.CmdLeft // Home
+                            seqStr == "4" || seqStr == "8" -> KeyEvent.CmdRight // End
+                            else -> KeyEvent.Unknown
+                        }
+                        else -> KeyEvent.Unknown
+                    }
+                } else if (next == 'O'.code) {
+                    when (readByte()) {
+                        'H'.code -> KeyEvent.CmdLeft
+                        'F'.code -> KeyEvent.CmdRight
                         else -> KeyEvent.Unknown
                     }
                 } else if (next == 127 || next == 8) {

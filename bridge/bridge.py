@@ -41,6 +41,7 @@ class RpcHandler(BaseHTTPRequestHandler):
                     pass
             except Exception as e:
                 logging.error(f"Error handling RPC: {e}")
+                logging.error(f"Request body: {post_data.decode('utf-8', errors='replace')}")
                 traceback.print_exc()
                 err_res = {
                     "jsonrpc": "2.0",
@@ -163,7 +164,7 @@ class FridaBridge:
             self.get_session()
             return self.script.exports_sync.inspectinstance(params.get("className", ""), params.get("id", ""))
 
-        elif method == "installGadget":
+        elif method == "prepareEnvironment":
             port = 8700
             target = "127.0.0.1"
 
@@ -188,6 +189,14 @@ class FridaBridge:
             logging.info("adb forward ok, waiting for JDWP to initialize...")
             time.sleep(1)
 
+            return {
+                "pid": pid,
+                "package_name": package_name,
+                "port": port,
+                "target": target
+            }
+
+        elif method == "checkOrPushGadget":
             if params.get("loadlib"):
                 check = subprocess.run(
                     ["adb", "shell", "ls", "/data/local/tmp/frida-gadget.so"],
@@ -212,14 +221,17 @@ class FridaBridge:
                 if check.returncode != 0:
                     raise Exception("frida-gadget.so not found on device and no loadlib provided")
 
+            return { "status": "ok" }
+
+        elif method == "injectJdwp":
             try:
                 result = run_jdwp(
-                    target=target,
-                    port=port,
+                    target=params.get("target", "127.0.0.1"),
+                    port=params.get("port", 8700),
                     cmd=params.get("cmd"),
                     loadlib=params.get("loadlib"),
                     break_on=params.get("break_on", "android.os.Handler.dispatchMessage"),
-                    package_name=package_name
+                    package_name=params.get("package_name")
                 )
             except Exception as e:
                 # run_jdwp failed, best-effort re-attach
