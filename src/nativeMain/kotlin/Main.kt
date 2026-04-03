@@ -7,33 +7,13 @@ import platform.posix.timeval
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 fun currentTimeMillis(): Long {
     memScoped {
         val tv = alloc<timeval>()
         gettimeofday(tv.ptr, null)
         return tv.tv_sec * 1000L + tv.tv_usec / 1000L
-    }
-}
-
-fun initDebugClassFilter(state: AppState, scope: CoroutineScope) {
-    state.mode = AppMode.DEBUG_CLASS_FILTER
-    state.isFetchingClasses = true
-    scope.launch {
-        val ok = RpcClient.ping()
-        if (!ok) {
-            state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
-            state.isFetchingClasses = false
-        } else {
-            val (pkgResult, _) = RpcClient.getPackageName()
-            if (pkgResult != null) {
-                state.sharedAppPackageName.value = pkgResult
-            }
-            val (result, error) = RpcClient.listClasses("", 0, 200)
-            state.sharedFetchedClasses.value = result ?: emptyList()
-            state.sharedRpcError.value = error
-            state.isFetchingClasses = false
-        }
     }
 }
 
@@ -78,8 +58,19 @@ fun main(args: Array<String>) {
     state.commandHistory = HistoryStore.load()
     val scope = CoroutineScope(Dispatchers.Default)
 
+    // Task 7: Start background polling for hook events every 250ms
+    scope.launch {
+        while (state.running) {
+            val events = RpcClient.getHookEvents()
+            if (events.isNotEmpty()) {
+                state.sharedHookEvents.value = events
+            }
+            delay(250)
+        }
+    }
+
     if (initialMode == AppMode.DEBUG_CLASS_FILTER) {
-        initDebugClassFilter(state, scope)
+        CommandExecutor.initDebugClassFilter(state, scope)
     } else if (initialMode == AppMode.DEBUG_INSPECT_CLASS) {
         state.inspectTargetClassName = inspectTarget
         state.isFetchingInspection = true
@@ -123,7 +114,25 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Char -> {
-                if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'h' || key.c == 'H')) {
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    when (key.c) {
+                        ' ', 's', 'S' -> {
+                            val hooks = state.activeHooks.toList()
+                            if (state.selectedHookIndex in hooks.indices) {
+                                val target = hooks[state.selectedHookIndex]
+                                target.enabled = !target.enabled
+                                scope.launch {
+                                    RpcClient.toggleHook(target.className, target.memberSignature, target.enabled)
+                                }
+                                Renderer.render(state)
+                            }
+                        }
+                        'c', 'C' -> {
+                            state.hookEvents.clear()
+                            Renderer.render(state)
+                        }
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'h' || key.c == 'H')) {
                     val rows = state.buildInspectRows()
                     if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
                         val row = rows[state.selectedClassIndex]
@@ -260,8 +269,14 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowDown -> {
-                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
-                    state.debugEntrypointIndex = (state.debugEntrypointIndex + 1).coerceAtMost(1)
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    val hooks = state.activeHooks.toList()
+                    if (hooks.isNotEmpty()) {
+                        state.selectedHookIndex = (state.selectedHookIndex + 1).coerceAtMost(hooks.size - 1)
+                        Renderer.render(state)
+                    }
+                } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                    state.debugEntrypointIndex = (state.debugEntrypointIndex + 1).coerceAtMost(2)
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty()) {
@@ -296,7 +311,13 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowUp -> {
-                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    val hooks = state.activeHooks.toList()
+                    if (hooks.isNotEmpty()) {
+                        state.selectedHookIndex = (state.selectedHookIndex - 1).coerceAtLeast(0)
+                        Renderer.render(state)
+                    }
+                } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
                     state.debugEntrypointIndex = (state.debugEntrypointIndex - 1).coerceAtLeast(0)
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEFAULT) {
@@ -345,10 +366,18 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Enter -> {
-                if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
-                    if (state.debugEntrypointIndex == 0) {
-                        initDebugClassFilter(state, scope)
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    val hooks = state.activeHooks.toList()
+                    if (state.selectedHookIndex in hooks.indices) {
+                        val target = hooks[state.selectedHookIndex]
+                        target.enabled = !target.enabled
+                        scope.launch {
+                            RpcClient.toggleHook(target.className, target.memberSignature, target.enabled)
+                        }
+                        Renderer.render(state)
                     }
+                } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                    CommandExecutor.handleDebugEntrypoint(state, scope)
                 } else if (state.mode == AppMode.DEFAULT) {
                     val commandToExecute = if (state.suggestions.isNotEmpty() && state.selectedSuggestionIndex != -1) {
                         state.suggestions[state.selectedSuggestionIndex].name
@@ -469,7 +498,10 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Esc -> {
-                if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    state.mode = AppMode.DEBUG_ENTRYPOINT
+                    Renderer.render(state)
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0 && !state.isFetchingInstances) {
                         val selectedClass = state.displayedClasses[state.selectedClassIndex]
                         state.isFetchingInstances = true
@@ -529,6 +561,16 @@ fun main(args: Array<String>) {
                             CommandExecutor.proceedWithTmux(state)
                             needsRender = true
                         }
+                    }
+                }
+
+                // Task 7: Handle polled hook events
+                val polledEvents = state.sharedHookEvents.value
+                if (polledEvents != null) {
+                    polledEvents.forEach { state.addHookEvent(it) }
+                    state.sharedHookEvents.value = null
+                    if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                        needsRender = true
                     }
                 }
 

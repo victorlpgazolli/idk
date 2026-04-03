@@ -23,6 +23,35 @@ object CommandExecutor {
         }
     }
 
+    fun initDebugClassFilter(state: AppState, scope: CoroutineScope) {
+        state.mode = AppMode.DEBUG_CLASS_FILTER
+        state.isFetchingClasses = true
+        scope.launch {
+            val ok = RpcClient.ping()
+            if (!ok) {
+                state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
+                state.isFetchingClasses = false
+            } else {
+                val (pkgResult, _) = RpcClient.getPackageName()
+                if (pkgResult != null) {
+                    state.sharedAppPackageName.value = pkgResult
+                }
+                val (result, error) = RpcClient.listClasses("", 0, 200)
+                state.sharedFetchedClasses.value = result ?: emptyList()
+                state.sharedRpcError.value = error
+                state.isFetchingClasses = false
+            }
+        }
+    }
+
+    fun handleDebugEntrypoint(state: AppState, scope: CoroutineScope) {
+        when (state.debugEntrypointIndex) {
+            0 -> initDebugClassFilter(state, scope)
+            1 -> { /* Hook methods - legacy */ }
+            2 -> state.mode = AppMode.DEBUG_HOOK_WATCH
+        }
+    }
+
     fun sortClasses(classes: List<String>, appPackage: String): List<String> {
         if (appPackage.isEmpty()) return classes.sorted()
         
