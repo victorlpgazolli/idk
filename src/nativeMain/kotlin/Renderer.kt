@@ -110,7 +110,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
             AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
             AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [\\] Count Instances  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [W] Watch Changes  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [W] Watch Changes  [I] Inspect Class  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
             AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [I] Inspect Class  [C] Clear Log  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
         }
         val padding = maxOf(0, termWidth - footerText.length)

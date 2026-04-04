@@ -209,6 +209,40 @@ fun main(args: Array<String>) {
                             Renderer.render(state)
                         }
                     }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'i' || key.c == 'I')) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
+                        val row = rows[state.selectedClassIndex]
+                        var targetClassName: String? = null
+                        
+                        if (row is InspectRow.InstanceRow) {
+                            targetClassName = state.inspectTargetClassName
+                        } else if (row is InspectRow.InstanceAttributeRow) {
+                            targetClassName = row.attribute.childClassName
+                        }
+                        
+                        if (targetClassName != null) {
+                            state.inspectBackStack.add(state.inspectTargetClassName)
+                            state.inspectTargetClassName = targetClassName
+                            state.isFetchingInspection = true
+                            state.inspectAttributes = emptyList()
+                            state.inspectMethods = emptyList()
+                            state.inspectExpandedInstances.clear()
+                            state.inspectExpandedInstancesError.clear()
+                            state.inspectInstancesList = null
+                            state.inspectInstancesTotalCount = 0
+                            state.inspectInstancesExpanded = false
+                            state.selectedClassIndex = 0
+                            state.rpcError = null
+                            Renderer.render(state)
+                            scope.launch {
+                                val (result, error) = RpcClient.inspectClass(targetClassName)
+                                state.sharedInspectResult.value = result
+                                state.sharedRpcError.value = error
+                                state.isFetchingInspection = false
+                            }
+                        }
+                    }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'R' || key.c == 'r')) {
                     val rows = state.buildInspectRows()
                     if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
@@ -561,7 +595,27 @@ fun main(args: Array<String>) {
                     state.mode = AppMode.DEBUG_ENTRYPOINT
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
-                    if (state.startedAsInspectPane) {
+                    if (state.inspectBackStack.isNotEmpty()) {
+                        val prevClass = state.inspectBackStack.removeAt(state.inspectBackStack.size - 1)
+                        state.inspectTargetClassName = prevClass
+                        state.isFetchingInspection = true
+                        state.inspectAttributes = emptyList()
+                        state.inspectMethods = emptyList()
+                        state.inspectExpandedInstances.clear()
+                        state.inspectExpandedInstancesError.clear()
+                        state.inspectInstancesList = null
+                        state.inspectInstancesTotalCount = 0
+                        state.inspectInstancesExpanded = false
+                        state.selectedClassIndex = 0
+                        state.rpcError = null
+                        Renderer.render(state)
+                        scope.launch {
+                            val (result, error) = RpcClient.inspectClass(prevClass)
+                            state.sharedInspectResult.value = result
+                            state.sharedRpcError.value = error
+                            state.isFetchingInspection = false
+                        }
+                    } else if (state.startedAsInspectPane) {
                         state.running = false
                     } else {
                         state.mode = AppMode.DEBUG_HOOK_WATCH

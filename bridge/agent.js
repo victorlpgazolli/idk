@@ -146,7 +146,10 @@ rpc.exports = {
                 if (!instance) {
                     throw new Error("Instance not found in cache.");
                 }
-                var clazz = Java.use(className);
+                
+                // Use the actual runtime class of the instance instead of the passed className
+                var actualClassName = instance.getClass().getName();
+                var clazz = Java.use(actualClassName);
                 var classDef = clazz.class;
                 
                 var fields = classDef.getDeclaredFields();

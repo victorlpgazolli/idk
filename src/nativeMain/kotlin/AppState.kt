@@ -113,6 +113,7 @@ data class AppState(
     var gadgetSpinnerFrame: Int = 0,
     var isSubPane: Boolean = false,
     var startedAsInspectPane: Boolean = false,
+    var inspectBackStack: MutableList<String> = mutableListOf(),
     var activeHooks: MutableList<HookTarget> = mutableListOf(),
     var hookEvents: MutableList<HookEvent> = mutableListOf(),
     val sharedHookEvents: AtomicReference<List<HookEvent>?> = AtomicReference(null),
