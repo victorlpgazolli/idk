@@ -40,7 +40,8 @@ object CommandExecutor {
                 if (pkgResult != null) {
                     state.sharedAppPackageName.value = pkgResult
                 }
-                val (result, error) = RpcClient.listClasses("", 0, 200)
+                state.lastSearchedParam = state.inputBuffer
+                val (result, error) = RpcClient.listClasses(state.inputBuffer, 0, 200)
                 state.sharedFetchedClasses.value = result ?: emptyList()
                 state.sharedRpcError.value = error
                 state.isFetchingClasses = false
