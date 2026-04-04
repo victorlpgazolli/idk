@@ -72,4 +72,4 @@ gradle/wrapper/gradle-wrapper.jar
 .vscode
 gradlew
 gradlew.bat
-__pycache__/.worktrees/
+__pycache__

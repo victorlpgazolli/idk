@@ -9,11 +9,15 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 
 object HookStore {
-    private fun filePath(): String = "${CacheManager.cacheDir()}/hooks.json"
+    private fun filePath(packageName: String): String {
+        val safeName = packageName.replace(".", "_").replace(" ", "_")
+        return "${CacheManager.cacheDir()}/hooks_$safeName.json"
+    }
 
-    fun load(): Set<HookTarget> {
+    fun load(packageName: String): Set<HookTarget> {
+        if (packageName.isEmpty()) return emptySet()
         CacheManager.ensureCacheDir()
-        val path = filePath()
+        val path = filePath(packageName)
         val file = fopen(path, "r") ?: return emptySet()
         
         val sb = StringBuilder()
@@ -33,9 +37,10 @@ object HookStore {
         }
     }
 
-    fun save(hooks: Set<HookTarget>) {
+    fun save(packageName: String, hooks: Set<HookTarget>) {
+        if (packageName.isEmpty()) return
         CacheManager.ensureCacheDir()
-        val path = filePath()
+        val path = filePath(packageName)
         val file = fopen(path, "w") ?: return
         
         val json = Json { prettyPrint = true }

@@ -29,6 +29,18 @@ fun onInputChanged(state: AppState, resetCtrlC: Boolean = true) {
     }
 }
 
+fun loadAndSyncHooks(state: AppState, scope: CoroutineScope, packageName: String) {
+    if (state.hooksLoaded) return
+    state.hooksLoaded = true
+    state.appPackageName = packageName
+    val loaded = HookStore.load(packageName)
+    state.activeHooks.clear()
+    state.activeHooks.addAll(loaded)
+    scope.launch {
+        RpcClient.syncAllHooks(state.activeHooks)
+    }
+}
+
 fun main(args: Array<String>) {
     CacheManager.ensureCacheDir()
 
@@ -62,12 +74,17 @@ fun main(args: Array<String>) {
         state.startedAsInspectPane = true
     }
     state.commandHistory = HistoryStore.load()
-    state.activeHooks.addAll(HookStore.load())
     val scope = CoroutineScope(Dispatchers.Default)
 
-    // Sync loaded hooks with the bridge (only main process)
-    if (!state.isSubPane) {
-        scope.launch { RpcClient.syncAllHooks(state.activeHooks) }
+    // Try to fetch package name at startup to load hooks early
+    scope.launch {
+        val ok = RpcClient.ping()
+        if (ok) {
+            val (pkg, _) = RpcClient.getPackageName()
+            if (pkg != null) {
+                loadAndSyncHooks(state, scope, pkg)
+            }
+        }
     }
 
     // Task 7: Start background polling for hook events every 250ms
@@ -94,6 +111,10 @@ fun main(args: Array<String>) {
                 state.sharedRpcError.value = "Frida bridge is not running on 127.0.0.1:8080. Start bridge.py"
                 state.isFetchingInspection = false
             } else {
+                val (pkg, _) = RpcClient.getPackageName()
+                if (pkg != null) {
+                    loadAndSyncHooks(state, scope, pkg)
+                }
                 val (result, error) = RpcClient.inspectClass(inspectTarget)
                 state.sharedInspectResult.value = result
                 state.sharedRpcError.value = error
@@ -139,7 +160,7 @@ fun main(args: Array<String>) {
                                 scope.launch {
                                     RpcClient.toggleHook(newHook.className, newHook.memberSignature, newHook.enabled)
                                 }
-                                HookStore.save(hooks.toSet())
+                                HookStore.save(state.appPackageName, state.activeHooks.toSet())
                                 Renderer.render(state)
                             }
                         }
@@ -182,7 +203,7 @@ fun main(args: Array<String>) {
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'w' || key.c == 'W')) {
                     state.mode = AppMode.DEBUG_HOOK_WATCH
                     state.activeHooks.clear()
-                    state.activeHooks.addAll(HookStore.load())
+                    state.activeHooks.addAll(HookStore.load(state.appPackageName))
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'h' || key.c == 'H')) {
                     val rows = state.buildInspectRows()
@@ -205,7 +226,7 @@ fun main(args: Array<String>) {
                                     RpcClient.toggleHook(state.inspectTargetClassName, signature, true)
                                 }
                             }
-                            HookStore.save(state.activeHooks.toSet())
+                            HookStore.save(state.appPackageName, state.activeHooks.toSet())
                             Renderer.render(state)
                         }
                     }
@@ -462,7 +483,7 @@ fun main(args: Array<String>) {
                         scope.launch {
                             RpcClient.toggleHook(newHook.className, newHook.memberSignature, newHook.enabled)
                         }
-                        HookStore.save(hooks.toSet())
+                        HookStore.save(state.appPackageName, state.activeHooks.toSet())
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
@@ -632,7 +653,7 @@ fun main(args: Array<String>) {
                         scope.launch {
                             RpcClient.toggleHook(target.className, target.memberSignature, false)
                         }
-                        HookStore.save(hooks.toSet())
+                        HookStore.save(state.appPackageName, state.activeHooks.toSet())
                         state.selectedHookIndex = state.selectedHookIndex.coerceAtMost(hooks.size - 1).coerceAtLeast(0)
                         Renderer.render(state)
                     }
@@ -756,8 +777,8 @@ fun main(args: Array<String>) {
 
                     val updatedPkg = state.sharedAppPackageName.value
                     if (updatedPkg != null) {
-                        state.appPackageName = updatedPkg
                         state.sharedAppPackageName.value = null
+                        loadAndSyncHooks(state, scope, updatedPkg)
 
                         if (state.inputBuffer.isEmpty()) {
                             state.inputBuffer = updatedPkg

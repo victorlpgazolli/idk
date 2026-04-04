@@ -39,4 +39,11 @@ object HistoryStore {
         fputs(content, file)
         fclose(file)
     }
+
+    fun clear() {
+        CacheManager.ensureCacheDir()
+        val path = filePath()
+        val file = fopen(path, "w") ?: return
+        fclose(file)
+    }
 }

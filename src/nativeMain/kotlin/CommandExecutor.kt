@@ -19,6 +19,10 @@ object CommandExecutor {
         when (baseCommand) {
             "debug" -> handleDebug(state, scope)
             "exit" -> state.running = false
+            "clear" -> {
+                state.commandHistory.clear()
+                HistoryStore.clear()
+            }
             else -> {}
         }
     }
@@ -49,7 +53,7 @@ object CommandExecutor {
             0 -> initDebugClassFilter(state, scope)
             1 -> {
                 state.activeHooks.clear()
-                state.activeHooks.addAll(HookStore.load())
+                state.activeHooks.addAll(HookStore.load(state.appPackageName))
                 state.mode = AppMode.DEBUG_HOOK_WATCH
             }
         }

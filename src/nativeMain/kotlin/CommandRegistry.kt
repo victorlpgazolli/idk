@@ -2,6 +2,7 @@ object CommandRegistry {
     private val commands = listOf(
         Command("debug", "start a new debug session"),
         Command("exit", "quit the application"),
+        Command("clear", "clear the command history"),
     )
 
     fun search(query: String): List<Command> {
