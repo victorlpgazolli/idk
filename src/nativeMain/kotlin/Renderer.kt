@@ -522,32 +522,36 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         .append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(summary).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceAttributeRow -> {
-                    val typeStr = "(${row.attribute.type})"
-                    val typeColor = when (row.attribute.type.lowercase()) {
-                        "boolean", "bool" -> TYPE_BOOLEAN
-                        "int", "long", "float", "double", "short", "byte" -> TYPE_NUMBER
-                        "string", "char", "charsequence" -> TYPE_STRING
-                        else -> TYPE_OTHER
-                    }
-                    val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
-                    
-                    val valueMax = maxOf(10, termWidth - visualIndent - row.attribute.name.length - typeStr.length - 10)
-                    val displayValue = if (row.attribute.value.length > valueMax) {
-                        row.attribute.value.take(valueMax - 3) + "..."
+                    if (row.attribute.isPagination) {
+                        buf.append(prefix).append(Ansi.YELLOW).append("... ").append(row.attribute.value).append(Ansi.RESET).append("\n")
                     } else {
-                        row.attribute.value
-                    }
+                        val typeStr = "(${row.attribute.type})"
+                        val typeColor = when (row.attribute.type.lowercase()) {
+                            "boolean", "bool" -> TYPE_BOOLEAN
+                            "int", "long", "float", "double", "short", "byte" -> TYPE_NUMBER
+                            "string", "char", "charsequence" -> TYPE_STRING
+                            else -> TYPE_OTHER
+                        }
+                        val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
+                        
+                        val valueMax = maxOf(10, termWidth - visualIndent - row.attribute.name.length - typeStr.length - 10)
+                        val displayValue = if (row.attribute.value.length > valueMax) {
+                            row.attribute.value.take(valueMax - 3) + "..."
+                        } else {
+                            row.attribute.value
+                        }
 
-                    buf.append(prefix)
-                    buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
-                    buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
-                    buf.append(" : ")
-                    if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
-                        buf.append(valColor).append("\"").append(displayValue).append("\"").append(Ansi.RESET)
-                    } else {
-                        buf.append(valColor).append(displayValue).append(Ansi.RESET)
+                        buf.append(prefix)
+                        buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
+                        buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
+                        buf.append(" : ")
+                        if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
+                            buf.append(valColor).append("\"").append(displayValue).append("\"").append(Ansi.RESET)
+                        } else {
+                            buf.append(valColor).append(displayValue).append(Ansi.RESET)
+                        }
+                        buf.append("\n")
                     }
-                    buf.append("\n")
                 }
                 is InspectRow.InfoRow -> {
                     val color = if (row.isError) Ansi.RED else if (row.isDim) Ansi.DIM else Ansi.RESET

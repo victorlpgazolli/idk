@@ -118,7 +118,7 @@ rpc.exports = {
                         if (!seen[id]) {
                             seen[id] = true;
                             total++;
-                            if (instances.length < 50) {
+                            if (instances.length < 1000) {
                                 var hndl = instance.$handle ? instance.$handle.toString() : "";
                                 instanceCache[id] = instance;
                                 instances.push({
@@ -138,8 +138,10 @@ rpc.exports = {
         }
     },
 
-    inspectinstance: function(className, id) {
+    inspectinstance: function(className, id, offset, limit) {
         var attributes = [];
+        offset = offset || 0;
+        limit = limit || 50;
         try {
             Java.perform(function() {
                 var instance = instanceCache[id];
@@ -152,36 +154,180 @@ rpc.exports = {
                 var clazz = Java.use(actualClassName);
                 var classDef = clazz.class;
                 
-                var fields = classDef.getDeclaredFields();
-                for (var i = 0; i < fields.length; i++) {
-                    var field = fields[i];
-                    field.setAccessible(true);
-                    var name = field.getName();
-                    var type = field.getType().getSimpleName();
-                    var valStr = "unknown";
-                    var childId = null;
-                    var childClassName = null;
-                    try {
-                        var fieldVal = field.get(instance);
-                        if (fieldVal !== null) {
-                            valStr = javaToString(fieldVal);
-                            var isBasicType = ["int", "long", "boolean", "byte", "short", "float", "double", "string", "charsequence", "char"].indexOf(type.toLowerCase()) !== -1;
-                            if (!isBasicType) {
-                                childId = fieldVal.hashCode().toString();
-                                instanceCache[childId] = fieldVal;
-                                try {
-                                    childClassName = fieldVal.getClass().getName();
-                                } catch(e) {
-                                  childClassName = field.getType().getName();
-                                }
-                            }
-                        } else {
-                           valStr = "null";
-                        }
-                    } catch(fe) {
-                        valStr = "error";
+                // 1. Detect if it's a Map, Collection, or Array
+                var isMap = false;
+                var isCollection = false;
+                var isArray = actualClassName.startsWith('[');
+                
+                try {
+                    var Map = Java.use("java.util.Map");
+                    var Collection = Java.use("java.util.Collection");
+                    if (Map.class.isInstance(instance)) isMap = true;
+                    if (Collection.class.isInstance(instance)) isCollection = true;
+                } catch(e) {}
+
+                // 2. If it's a collection-like thing, show its items first
+                if (isMap) {
+                    var entrySet = Java.cast(instance, Java.use("java.util.Map")).entrySet().iterator();
+                    var skipped = 0;
+                    while (entrySet.hasNext() && skipped < offset) {
+                        entrySet.next();
+                        skipped++;
                     }
-                    attributes.push({ name: name, type: type, value: valStr, childId: childId, childClassName: childClassName });
+                    var count = 0;
+                    while (entrySet.hasNext() && count < limit) {
+                        var entry = Java.cast(entrySet.next(), Java.use("java.util.Map$Entry"));
+                        var key = entry.getKey();
+                        var val = entry.getValue();
+                        var keyStr = key !== null ? key.toString() : "null";
+                        var valStr = val !== null ? javaToString(val) : "null";
+                        
+                        var childId = null;
+                        var childClassName = null;
+                        if (val !== null && typeof val === 'object') {
+                            childId = val.hashCode().toString();
+                            instanceCache[childId] = val;
+                            try { childClassName = val.getClass().getName(); } catch(e) {}
+                        }
+                        
+                        attributes.push({ 
+                            name: keyStr, 
+                            type: "MapEntry", 
+                            value: valStr, 
+                            childId: childId, 
+                            childClassName: childClassName,
+                            isPagination: false
+                        });
+                        count++;
+                    }
+                    if (entrySet.hasNext()) {
+                         attributes.push({ 
+                             name: "...", 
+                             type: "Action", 
+                             value: "Show more items", 
+                             childId: id, // Pass the same instance ID to expand more
+                             isPagination: true,
+                             nextOffset: offset + limit
+                         });
+                    }
+                } else if (isCollection) {
+                    var iterator = Java.cast(instance, Java.use("java.util.Collection")).iterator();
+                    var skipped = 0;
+                    while (iterator.hasNext() && skipped < offset) {
+                        iterator.next();
+                        skipped++;
+                    }
+                    var count = 0;
+                    while (iterator.hasNext() && count < limit) {
+                        var val = iterator.next();
+                        var name = "[" + (offset + count) + "]";
+                        var valStr = val !== null ? javaToString(val) : "null";
+                        
+                        var childId = null;
+                        var childClassName = null;
+                        if (val !== null && typeof val === 'object') {
+                            childId = val.hashCode().toString();
+                            instanceCache[childId] = val;
+                            try { childClassName = val.getClass().getName(); } catch(e) {}
+                        }
+                        
+                        attributes.push({ 
+                            name: name, 
+                            type: "Element", 
+                            value: valStr, 
+                            childId: childId, 
+                            childClassName: childClassName,
+                            isPagination: false
+                        });
+                        count++;
+                    }
+                    if (iterator.hasNext()) {
+                        attributes.push({ 
+                            name: "...", 
+                            type: "Action", 
+                            value: "Show more items", 
+                            childId: id, 
+                            isPagination: true,
+                            nextOffset: offset + limit
+                        });
+                    }
+                } else if (isArray) {
+                    var len = Java.use("java.lang.reflect.Array").getLength(instance);
+                    var end = Math.min(len, offset + limit);
+                    for (var i = offset; i < end; i++) {
+                        var val = Java.use("java.lang.reflect.Array").get(instance, i);
+                        var name = "[" + i + "]";
+                        var valStr = val !== null ? javaToString(val) : "null";
+                        
+                        var childId = null;
+                        var childClassName = null;
+                        if (val !== null && typeof val === 'object') {
+                            childId = val.hashCode().toString();
+                            instanceCache[childId] = val;
+                            try { childClassName = val.getClass().getName(); } catch(e) {}
+                        }
+                        
+                        attributes.push({ 
+                            name: name, 
+                            type: "Element", 
+                            value: valStr, 
+                            childId: childId, 
+                            childClassName: childClassName,
+                            isPagination: false
+                        });
+                    }
+                    if (len > end) {
+                         attributes.push({ 
+                             name: "...", 
+                             type: "Action", 
+                             value: "Show more items", 
+                             childId: id, 
+                             isPagination: true,
+                             nextOffset: offset + limit
+                         });
+                    }
+                }
+
+                // 3. Only show regular fields on the FIRST page (offset 0)
+                if (offset === 0) {
+                    var fields = classDef.getDeclaredFields();
+                    for (var i = 0; i < fields.length; i++) {
+                        var field = fields[i];
+                        field.setAccessible(true);
+                        var name = field.getName();
+                        var type = field.getType().getSimpleName();
+                        var valStr = "unknown";
+                        var childId = null;
+                        var childClassName = null;
+                        try {
+                            var fieldVal = field.get(instance);
+                            if (fieldVal !== null) {
+                                valStr = javaToString(fieldVal);
+                                var isBasicType = ["int", "long", "boolean", "byte", "short", "float", "double", "string", "charsequence", "char"].indexOf(type.toLowerCase()) !== -1;
+                                if (!isBasicType) {
+                                    childId = fieldVal.hashCode().toString();
+                                    instanceCache[childId] = fieldVal;
+                                    try {
+                                        childClassName = fieldVal.getClass().getName();
+                                    } catch(e) {
+                                      childClassName = field.getType().getName();
+                                    }
+                                }
+                            } else {
+                               valStr = "null";
+                            }
+                        } catch(fe) {
+                            valStr = "error";
+                        }
+                        attributes.push({ 
+                            name: name, 
+                            type: type, 
+                            value: valStr, 
+                            childId: childId, 
+                            childClassName: childClassName,
+                            isPagination: false
+                        });
+                    }
                 }
             });
             return { attributes: attributes };

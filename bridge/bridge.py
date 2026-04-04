@@ -162,7 +162,12 @@ class FridaBridge:
 
         elif method == "inspectInstance":
             self.get_session()
-            return self.script.exports_sync.inspectinstance(params.get("className", ""), params.get("id", ""))
+            return self.script.exports_sync.inspectinstance(
+                params.get("className", ""), 
+                params.get("id", ""),
+                params.get("offset", 0),
+                params.get("limit", 50)
+            )
 
         elif method == "setFieldValue":
             self.get_session()

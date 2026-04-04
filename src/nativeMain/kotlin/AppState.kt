@@ -103,7 +103,7 @@ data class AppState(
     val sharedInstancesListResult: AtomicReference<ListInstancesResult?> = AtomicReference(null),
     var inspectExpandedInstances: MutableMap<String, List<InstanceAttribute>?> = mutableMapOf(),
     var inspectExpandedInstancesError: MutableMap<String, String> = mutableMapOf(),
-    val sharedInspectInstanceResult: AtomicReference<Pair<String, List<InstanceAttribute>>?> = AtomicReference(null),
+    val sharedInspectInstanceResult: AtomicReference<Triple<String, List<InstanceAttribute>, Boolean>?> = AtomicReference(null),
     val sharedInspectInstanceError: AtomicReference<Pair<String, String>?> = AtomicReference(null),
 
 

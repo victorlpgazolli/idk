@@ -309,7 +309,7 @@ fun main(args: Array<String>) {
                             scope.launch {
                                 val (attrs, err) = RpcClient.inspectInstance(targetClassName, targetId)
                                 if (err == null && attrs != null) {
-                                    state.sharedInspectInstanceResult.value = Pair(targetId, attrs)
+                                    state.sharedInspectInstanceResult.value = Triple(targetId, attrs, false)
                                 } else {
                                     state.sharedRpcError.value = err ?: "Unknown error"
                                 }
@@ -526,7 +526,7 @@ fun main(args: Array<String>) {
                                 // Refresh instance
                                 val (attrs, refreshErr) = RpcClient.inspectInstance(state.inspectTargetClassName, instId)
                                 if (refreshErr == null && attrs != null) {
-                                    state.sharedInspectInstanceResult.value = Pair(instId, attrs)
+                                    state.sharedInspectInstanceResult.value = Triple(instId, attrs, false)
                                 } else {
                                     state.sharedRpcError.value = refreshErr ?: "Unknown error"
                                 }
@@ -607,7 +607,7 @@ fun main(args: Array<String>) {
                                     scope.launch {
                                         val (attrs, err) = RpcClient.inspectInstance(state.inspectTargetClassName, id)
                                         if (err == null && attrs != null) {
-                                            state.sharedInspectInstanceResult.value = Pair(id, attrs)
+                                            state.sharedInspectInstanceResult.value = Triple(id, attrs, false)
                                         } else {
                                             state.sharedRpcError.value = err ?: "Unknown error"
                                         }
@@ -615,21 +615,35 @@ fun main(args: Array<String>) {
                                 }
                             }
                             is InspectRow.InstanceAttributeRow -> {
-                                val childId = row.attribute.childId
-                                val childClassName = row.attribute.childClassName
-                                if (childId != null && childClassName != null) {
-                                    if (state.inspectExpandedInstances.containsKey(childId)) {
-                                        state.inspectExpandedInstances.remove(childId)
-                                        Renderer.render(state)
-                                    } else {
-                                        state.inspectExpandedInstances[childId] = null
-                                        Renderer.render(state)
-                                        scope.launch {
-                                            val (attrs, err) = RpcClient.inspectInstance(childClassName, childId)
-                                            if (err == null && attrs != null) {
-                                                state.sharedInspectInstanceResult.value = Pair(childId, attrs)
-                                            } else {
-                                                state.sharedRpcError.value = err ?: "Unknown error"
+                                val attr = row.attribute
+                                if (attr.isPagination) {
+                                    val parentId = row.instanceId
+                                    // Fetch more items for the SAME parent
+                                    scope.launch {
+                                        val (moreAttrs, err) = RpcClient.inspectInstance(state.inspectTargetClassName, parentId, offset = attr.nextOffset)
+                                        if (err == null && moreAttrs != null) {
+                                            state.sharedInspectInstanceResult.value = Triple(parentId, moreAttrs, true)
+                                        } else {
+                                            state.sharedRpcError.value = err ?: "Error fetching more items"
+                                        }
+                                    }
+                                } else {
+                                    val childId = attr.childId
+                                    val childClassName = attr.childClassName
+                                    if (childId != null && childClassName != null) {
+                                        if (state.inspectExpandedInstances.containsKey(childId)) {
+                                            state.inspectExpandedInstances.remove(childId)
+                                            Renderer.render(state)
+                                        } else {
+                                            state.inspectExpandedInstances[childId] = null
+                                            Renderer.render(state)
+                                            scope.launch {
+                                                val (attrs, err) = RpcClient.inspectInstance(childClassName, childId)
+                                                if (err == null && attrs != null) {
+                                                    state.sharedInspectInstanceResult.value = Triple(childId, attrs, false)
+                                                } else {
+                                                    state.sharedRpcError.value = err ?: "Unknown error"
+                                                }
                                             }
                                         }
                                     }
@@ -867,7 +881,15 @@ fun main(args: Array<String>) {
                     
                     val inspectInstanceResult = state.sharedInspectInstanceResult.value
                     if (inspectInstanceResult != null) {
-                        state.inspectExpandedInstances[inspectInstanceResult.first] = inspectInstanceResult.second
+                        val (id, newAttrs, isAppend) = inspectInstanceResult
+                        if (isAppend) {
+                            val current = state.inspectExpandedInstances[id] ?: emptyList()
+                            // Remove the pagination marker before appending new attributes
+                            val filtered = current.filter { !it.isPagination }
+                            state.inspectExpandedInstances[id] = filtered + newAttrs
+                        } else {
+                            state.inspectExpandedInstances[id] = newAttrs
+                        }
                         state.sharedInspectInstanceResult.value = null
                         needsRender = true
                     }

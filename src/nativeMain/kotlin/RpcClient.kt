@@ -77,7 +77,9 @@ data class JsonRpcRequestListInstances(
 @Serializable
 data class InspectInstanceParams(
     val className: String,
-    val id: String
+    val id: String,
+    val offset: Int = 0,
+    val limit: Int = 50
 )
 
 @Serializable
@@ -115,7 +117,9 @@ data class InstanceAttribute(
     val type: String,
     val value: String,
     val childId: String? = null,
-    val childClassName: String? = null
+    val childClassName: String? = null,
+    val isPagination: Boolean = false,
+    val nextOffset: Int = 0
 )
 
 @Serializable
@@ -394,11 +398,11 @@ object RpcClient {
         }
     }
 
-    suspend fun inspectInstance(className: String, id: String): Pair<List<InstanceAttribute>?, String?> {
+    suspend fun inspectInstance(className: String, id: String, offset: Int = 0, limit: Int = 50): Pair<List<InstanceAttribute>?, String?> {
         return try {
             val requestBody = JsonRpcRequestInspectInstance(
                 method = "inspectInstance",
-                params = InspectInstanceParams(className, id)
+                params = InspectInstanceParams(className, id, offset, limit)
             )
 
             val response: HttpResponse = withTimeoutOrNull(10000) {
@@ -407,7 +411,6 @@ object RpcClient {
                     setBody(requestBody)
                 }
             } ?: return Pair(null, "RPC Timeout (10s)")
-
             if (response.status.value in 200..299) {
                 val rpcResponse = response.body<JsonRpcInspectInstanceResponse>()
                 if (rpcResponse.error != null) {
