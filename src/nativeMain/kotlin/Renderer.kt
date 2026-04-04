@@ -66,8 +66,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.CURSOR_HOME)
         buf.append(Ansi.HIDE_CURSOR)
 
-        renderLogo(buf)
         if (state.mode == AppMode.DEFAULT) {
+            renderLogo(buf)
             renderWelcome(buf)
             renderHistory(buf, state)
             renderCtrlCWarning(buf, state)
@@ -75,6 +75,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderSuggestions(buf, state)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
+            renderLogo(buf)
             renderWelcome(buf)
             renderClassFetchStatus(buf, state)
             renderCtrlCWarning(buf, state)
@@ -82,11 +83,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderClassList(buf, state, termWidth, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+            renderLogo(buf)
             renderCtrlCWarning(buf, state)
             renderInspectHeader(buf, state, width)
             buf.append("\n")
             renderInspectClassList(buf, state, termWidth, termHeight)
         } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+            renderLogo(buf)
             renderWelcome(buf)
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
@@ -106,9 +109,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val footerText = when (state.mode) {
             AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
             AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
-            AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [Esc] Count Instances  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [\\] Count Instances  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [W] Watch Changes  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [I] Inspect Class  [C] Clear Log  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
         }
         val padding = maxOf(0, termWidth - footerText.length)
         
@@ -555,14 +558,20 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, rows.size, termWidth)
     }
 
+    private fun extractMemberName(signature: String): String {
+        // signature: "public static void com.pkg.Class.methodName(int, java.lang.String)"
+        // or "public static int com.pkg.Class.fieldName"
+        val beforeArgs = signature.split('(')[0].trim()
+        val parts = beforeArgs.split(' ')
+        val fullPath = parts.last()
+        return fullPath.split('.').last()
+    }
+
     private fun renderHookWatchMode(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         val leftWidth = (termWidth * 0.4).toInt()
         val rightWidth = termWidth - leftWidth - 1
         val contentHeight = termHeight - 2 // Footer and one line for header
 
-        buf.append(Ansi.CURSOR_HOME)
-        buf.append(Ansi.moveTo(1, 1))
-        
         // Header
         val leftTitle = " Monitored Items ".padStart((leftWidth + 17) / 2).padEnd(leftWidth)
         val rightTitle = " Live Event Log ".padStart((rightWidth + 16) / 2).padEnd(rightWidth)
@@ -573,8 +582,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val activeHooksList = state.activeHooks.toList()
         
         for (y in 0 until contentHeight) {
-            buf.append(Ansi.moveTo(y + 2, 1))
-            
             // Left Panel: Monitored Items
             if (y < activeHooksList.size) {
                 val hook = activeHooksList[y]
@@ -583,15 +590,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val check = if (hook.enabled) "[✓]" else "[ ]"
                 val color = if (hook.type == HookType.METHOD) Ansi.YELLOW else Ansi.BLUE
                 
-                var line = "$selectionMarker$check $color${hook.memberSignature}${Ansi.RESET}"
-                // Truncate if too long
-                val visibleLen = selectionMarker.length + check.length + 1 + hook.memberSignature.length
+                val displayName = extractMemberName(hook.memberSignature)
+                var lineText = "$selectionMarker$check $color$displayName${Ansi.RESET}"
+                val visibleLen = 2 + check.length + 1 + displayName.length
                 if (visibleLen > leftWidth) {
-                    line = line.take(leftWidth - 3 + (line.length - visibleLen)) + "..."
+                    buf.append(lineText.take(leftWidth - 3 + (lineText.length - visibleLen))).append("...")
                 } else {
-                    line += " ".repeat(leftWidth - visibleLen)
+                    buf.append(lineText).append(" ".repeat(leftWidth - visibleLen))
                 }
-                buf.append(line)
             } else {
                 buf.append(" ".repeat(leftWidth))
             }
@@ -606,27 +612,32 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val typeLabel = if (event.target.type == HookType.METHOD) "CALL" else "CHANGE"
                 val countStr = if (event.count > 1) " (x${event.count})" else ""
                 
-                val content = when (event.target.type) {
+                var content = when (event.target.type) {
                     HookType.METHOD -> {
                         val args = event.data["args"] ?: ""
                         val ret = event.data["return"] ?: ""
-                        "$typeLabel ${event.target.memberSignature}($args) -> $ret"
+                        val name = extractMemberName(event.target.memberSignature)
+                        "$typeLabel $name($args) -> $ret"
                     }
                     HookType.FIELD -> {
                         val value = event.data["value"] ?: ""
-                        "$typeLabel ${event.target.memberSignature}: $value"
+                        val name = extractMemberName(event.target.memberSignature)
+                        "$typeLabel $name: $value"
                     }
                 }
                 
-                var logLine = "${Ansi.DIM}[$time]${Ansi.RESET} $content${Ansi.YELLOW}$countStr${Ansi.RESET}"
-                val visibleLogLen = 11 + content.length + countStr.length // [HH:mm:ss] is 10 chars + 1 space
-                
-                if (visibleLogLen > rightWidth) {
-                    logLine = logLine.take(rightWidth - 3 + (logLine.length - visibleLogLen)) + "..."
-                } else {
-                    logLine += " ".repeat(rightWidth - visibleLogLen)
+                val maxContentLen = rightWidth - 11 - countStr.length
+                if (content.length > maxContentLen) {
+                    content = content.take(maxContentLen - 3) + "..."
                 }
+                
+                val logLine = "${Ansi.DIM}[$time]${Ansi.RESET} $content${Ansi.YELLOW}$countStr${Ansi.RESET}"
+                val visibleLogLen = 11 + content.length + countStr.length
+                
                 buf.append(logLine)
+                if (visibleLogLen < rightWidth) {
+                    buf.append(" ".repeat(rightWidth - visibleLogLen))
+                }
             } else {
                 buf.append(" ".repeat(rightWidth))
             }

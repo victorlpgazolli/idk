@@ -34,7 +34,7 @@ data class HookTarget(
     val className: String,
     val memberSignature: String,
     val type: HookType,
-    var enabled: Boolean = true
+    val enabled: Boolean = true
 )
 
 @Serializable
@@ -111,8 +111,9 @@ data class AppState(
     var gadgetErrorMessage: String? = null,
     val sharedGadgetResult: AtomicReference<Pair<GadgetInstallStatus, String?>?> = AtomicReference(null),
     var gadgetSpinnerFrame: Int = 0,
-
-    var activeHooks: MutableSet<HookTarget> = mutableSetOf(),
+    var isSubPane: Boolean = false,
+    var startedAsInspectPane: Boolean = false,
+    var activeHooks: MutableList<HookTarget> = mutableListOf(),
     var hookEvents: MutableList<HookEvent> = mutableListOf(),
     val sharedHookEvents: AtomicReference<List<HookEvent>?> = AtomicReference(null),
     var selectedHookIndex: Int = 0,

@@ -47,8 +47,11 @@ object CommandExecutor {
     fun handleDebugEntrypoint(state: AppState, scope: CoroutineScope) {
         when (state.debugEntrypointIndex) {
             0 -> initDebugClassFilter(state, scope)
-            1 -> { /* Hook methods - legacy */ }
-            2 -> state.mode = AppMode.DEBUG_HOOK_WATCH
+            1 -> {
+                state.activeHooks.clear()
+                state.activeHooks.addAll(HookStore.load())
+                state.mode = AppMode.DEBUG_HOOK_WATCH
+            }
         }
     }
 

@@ -55,15 +55,29 @@ fun main(args: Array<String>) {
     }
 
     val state = AppState(mode = initialMode)
+    if (args.contains("--mode")) {
+        state.isSubPane = true
+    }
+    if (initialMode == AppMode.DEBUG_INSPECT_CLASS) {
+        state.startedAsInspectPane = true
+    }
     state.commandHistory = HistoryStore.load()
+    state.activeHooks.addAll(HookStore.load())
     val scope = CoroutineScope(Dispatchers.Default)
+
+    // Sync loaded hooks with the bridge (only main process)
+    if (!state.isSubPane) {
+        scope.launch { RpcClient.syncAllHooks(state.activeHooks) }
+    }
 
     // Task 7: Start background polling for hook events every 250ms
     scope.launch {
         while (state.running) {
-            val events = RpcClient.getHookEvents()
-            if (events.isNotEmpty()) {
-                state.sharedHookEvents.value = events
+            if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                val events = RpcClient.getHookEvents()
+                if (events.isNotEmpty()) {
+                    state.sharedHookEvents.value = events
+                }
             }
             delay(250)
         }
@@ -117,14 +131,36 @@ fun main(args: Array<String>) {
                 if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
                     when (key.c) {
                         ' ', 's', 'S' -> {
-                            val hooks = state.activeHooks.toList()
+                            val hooks = state.activeHooks
+                            if (state.selectedHookIndex in hooks.indices) {
+                                val oldHook = hooks[state.selectedHookIndex]
+                                val newHook = oldHook.copy(enabled = !oldHook.enabled)
+                                hooks[state.selectedHookIndex] = newHook
+                                scope.launch {
+                                    RpcClient.toggleHook(newHook.className, newHook.memberSignature, newHook.enabled)
+                                }
+                                HookStore.save(hooks.toSet())
+                                Renderer.render(state)
+                            }
+                        }
+                        'i', 'I' -> {
+                            val hooks = state.activeHooks
                             if (state.selectedHookIndex in hooks.indices) {
                                 val target = hooks[state.selectedHookIndex]
-                                target.enabled = !target.enabled
-                                scope.launch {
-                                    RpcClient.toggleHook(target.className, target.memberSignature, target.enabled)
-                                }
+                                state.inspectTargetClassName = target.className
+                                state.isFetchingInspection = true
+                                state.inspectAttributes = emptyList()
+                                state.inspectMethods = emptyList()
+                                state.inspectExpandedInstances.clear()
+                                state.selectedClassIndex = 0
+                                state.mode = AppMode.DEBUG_INSPECT_CLASS
                                 Renderer.render(state)
+                                scope.launch {
+                                    val (result, error) = RpcClient.inspectClass(target.className)
+                                    state.sharedInspectResult.value = result
+                                    state.sharedRpcError.value = error
+                                    state.isFetchingInspection = false
+                                }
                             }
                         }
                         'c', 'C' -> {
@@ -132,6 +168,22 @@ fun main(args: Array<String>) {
                             Renderer.render(state)
                         }
                     }
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER && key.c == '\\') {
+                    if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0 && !state.isFetchingInstances) {
+                        val selectedClass = state.displayedClasses[state.selectedClassIndex]
+                        state.isFetchingInstances = true
+                        Renderer.render(state)
+                        scope.launch {
+                            val (res, err) = RpcClient.countInstances(selectedClass)
+                            state.sharedInstanceCountResult.value = if (res != null) Pair(selectedClass, res) else null
+                            state.sharedInstanceCountError.value = err
+                        }
+                    }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'w' || key.c == 'W')) {
+                    state.mode = AppMode.DEBUG_HOOK_WATCH
+                    state.activeHooks.clear()
+                    state.activeHooks.addAll(HookStore.load())
+                    Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'h' || key.c == 'H')) {
                     val rows = state.buildInspectRows()
                     if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
@@ -153,6 +205,7 @@ fun main(args: Array<String>) {
                                     RpcClient.toggleHook(state.inspectTargetClassName, signature, true)
                                 }
                             }
+                            HookStore.save(state.activeHooks.toSet())
                             Renderer.render(state)
                         }
                     }
@@ -276,7 +329,7 @@ fun main(args: Array<String>) {
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
-                    state.debugEntrypointIndex = (state.debugEntrypointIndex + 1).coerceAtMost(2)
+                    state.debugEntrypointIndex = (state.debugEntrypointIndex + 1).coerceAtMost(1)
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEFAULT) {
                     if (state.suggestions.isNotEmpty()) {
@@ -367,17 +420,20 @@ fun main(args: Array<String>) {
 
             is KeyEvent.Enter -> {
                 if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
-                    val hooks = state.activeHooks.toList()
+                    val hooks = state.activeHooks
                     if (state.selectedHookIndex in hooks.indices) {
-                        val target = hooks[state.selectedHookIndex]
-                        target.enabled = !target.enabled
+                        val oldHook = hooks[state.selectedHookIndex]
+                        val newHook = oldHook.copy(enabled = !oldHook.enabled)
+                        hooks[state.selectedHookIndex] = newHook
                         scope.launch {
-                            RpcClient.toggleHook(target.className, target.memberSignature, target.enabled)
+                            RpcClient.toggleHook(newHook.className, newHook.memberSignature, newHook.enabled)
                         }
+                        HookStore.save(hooks.toSet())
                         Renderer.render(state)
                     }
                 } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
                     CommandExecutor.handleDebugEntrypoint(state, scope)
+                    Renderer.render(state)
                 } else if (state.mode == AppMode.DEFAULT) {
                     val commandToExecute = if (state.suggestions.isNotEmpty() && state.selectedSuggestionIndex != -1) {
                         state.suggestions[state.selectedSuggestionIndex].name
@@ -502,25 +558,37 @@ fun main(args: Array<String>) {
                     state.mode = AppMode.DEBUG_ENTRYPOINT
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
-                    if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0 && !state.isFetchingInstances) {
-                        val selectedClass = state.displayedClasses[state.selectedClassIndex]
-                        state.isFetchingInstances = true
+                    state.mode = AppMode.DEBUG_ENTRYPOINT
+                    Renderer.render(state)
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+                    if (state.startedAsInspectPane) {
+                        state.running = false
+                    } else {
+                        state.mode = AppMode.DEBUG_HOOK_WATCH
                         Renderer.render(state)
-                        scope.launch {
-                            val (res, err) = RpcClient.countInstances(selectedClass)
-                            state.sharedInstanceCountResult.value = if (res != null) Pair(selectedClass, res) else null
-                            state.sharedInstanceCountError.value = err
-                        }
                     }
                 }
             }
 
             is KeyEvent.Delete -> {
-                if (state.cursorPosition < state.inputBuffer.length) {
-                    state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
-                            state.inputBuffer.substring(state.cursorPosition + 1)
-                    onInputChanged(state)
-                    Renderer.render(state)
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    val hooks = state.activeHooks
+                    if (state.selectedHookIndex in hooks.indices) {
+                        val target = hooks.removeAt(state.selectedHookIndex)
+                        scope.launch {
+                            RpcClient.toggleHook(target.className, target.memberSignature, false)
+                        }
+                        HookStore.save(hooks.toSet())
+                        state.selectedHookIndex = state.selectedHookIndex.coerceAtMost(hooks.size - 1).coerceAtLeast(0)
+                        Renderer.render(state)
+                    }
+                } else {
+                    if (state.cursorPosition < state.inputBuffer.length) {
+                        state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
+                                state.inputBuffer.substring(state.cursorPosition + 1)
+                        onInputChanged(state)
+                        Renderer.render(state)
+                    }
                 }
             }
 
@@ -557,6 +625,10 @@ fun main(args: Array<String>) {
                             // Reset gadget state and proceed with tmux
                             state.gadgetInstallStatus = GadgetInstallStatus.IDLE
                             state.gadgetErrorMessage = null
+                            
+                            // Re-apply active hooks to the new session
+                            scope.launch { RpcClient.syncAllHooks(state.activeHooks) }
+                            
                             Renderer.render(state)
                             CommandExecutor.proceedWithTmux(state)
                             needsRender = true
