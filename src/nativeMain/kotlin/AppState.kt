@@ -6,7 +6,8 @@ enum class AppMode {
     DEBUG_ENTRYPOINT,
     DEBUG_CLASS_FILTER,
     DEBUG_INSPECT_CLASS,
-    DEBUG_HOOK_WATCH
+    DEBUG_HOOK_WATCH,
+    DEBUG_EDIT_ATTRIBUTE
 }
 
 enum class GadgetInstallStatus {
@@ -119,7 +120,10 @@ data class AppState(
     var hookEvents: MutableList<HookEvent> = mutableListOf(),
     val sharedHookEvents: AtomicReference<List<HookEvent>?> = AtomicReference(null),
     var selectedHookIndex: Int = 0,
-    var hookLogScrollOffset: Int = 0
+    var hookLogScrollOffset: Int = 0,
+
+    var editingInstanceId: String = "",
+    var editingAttribute: InstanceAttribute? = null
 ) {
     fun addHookEvent(event: HookEvent) {
         val last = hookEvents.lastOrNull()

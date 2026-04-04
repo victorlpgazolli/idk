@@ -298,5 +298,41 @@ rpc.exports = {
         var events = hookEvents;
         hookEvents = [];
         return events;
+    },
+
+    setfieldvalue: function(className, id, fieldName, type, newValue) {
+        try {
+            return Java.perform(function() {
+                var instance = instanceCache[id];
+                if (!instance) {
+                    throw new Error("Instance not found in cache.");
+                }
+                
+                var actualClassName = instance.getClass().getName();
+                var clazz = Java.use(actualClassName);
+                var classDef = clazz.class;
+                
+                var field = classDef.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                
+                var t = type.toLowerCase();
+                var val = null;
+                if (t === "boolean" || t === "bool") val = Java.use("java.lang.Boolean").valueOf(newValue === "true");
+                else if (t === "int") val = Java.use("java.lang.Integer").valueOf(parseInt(newValue, 10));
+                else if (t === "long") val = Java.use("java.lang.Long").valueOf(parseInt(newValue, 10));
+                else if (t === "float") val = Java.use("java.lang.Float").valueOf(parseFloat(newValue));
+                else if (t === "double") val = Java.use("java.lang.Double").valueOf(parseFloat(newValue));
+                else if (t === "short") val = Java.use("java.lang.Short").valueOf(parseInt(newValue, 10));
+                else if (t === "byte") val = Java.use("java.lang.Byte").valueOf(parseInt(newValue, 10));
+                else if (t === "char") val = Java.use("java.lang.Character").valueOf(newValue.charAt(0));
+                else if (t === "string" || t === "charsequence") val = Java.use("java.lang.String").$new(newValue);
+                else throw new Error("Unsupported type for editing");
+                
+                field.set(instance, val);
+                return true;
+            });
+        } catch (e) {
+            return { error: e.toString() };
+        }
     }
 };

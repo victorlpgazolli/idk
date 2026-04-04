@@ -164,6 +164,16 @@ class FridaBridge:
             self.get_session()
             return self.script.exports_sync.inspectinstance(params.get("className", ""), params.get("id", ""))
 
+        elif method == "setFieldValue":
+            self.get_session()
+            return self.script.exports_sync.setfieldvalue(
+                params.get("className", ""), 
+                params.get("id", ""), 
+                params.get("fieldName", ""), 
+                params.get("type", ""), 
+                params.get("newValue", "")
+            )
+
         elif method == "prepareEnvironment":
             port = 8700
             target = "127.0.0.1"

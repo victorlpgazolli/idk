@@ -82,12 +82,18 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderInputBox(buf, state, width)
             renderClassList(buf, state, termWidth, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
-        } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
+        } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS || state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
             renderLogo(buf)
             renderCtrlCWarning(buf, state)
             renderInspectHeader(buf, state, width)
             buf.append("\n")
+            if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
+                renderInputBox(buf, state, width)
+            }
             renderInspectClassList(buf, state, termWidth, termHeight)
+            if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
+                buf.append(Ansi.RESTORE_CURSOR)
+            }
         } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
             renderLogo(buf)
             renderWelcome(buf)
@@ -110,8 +116,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
             AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
             AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [\\] Count Instances  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [W] Watch Changes  [I] Inspect Class  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [E] Edit  [W] Watch Changes  [I] Inspect Class  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
             AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [I] Inspect Class  [C] Clear Log  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
+            AppMode.DEBUG_EDIT_ATTRIBUTE -> " [Type] New Value  [Enter] Save  [Esc] Cancel  [Ctrl+C] Quit "
         }
         val padding = maxOf(0, termWidth - footerText.length)
         
@@ -438,7 +445,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val fixedLines = 18 
+        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 21 else 18 
         val maxItems = maxOf(3, termHeight - fixedLines)
         val (startIdx, endIdx) = ListRenderer.computeViewport(rows.size, state.selectedClassIndex, maxItems)
 

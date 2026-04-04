@@ -233,6 +233,23 @@ data class JsonRpcHookEventsResponse(
     val id: Int? = null
 )
 
+@Serializable
+data class SetFieldValueParams(
+    val className: String,
+    val id: String,
+    val fieldName: String,
+    val type: String,
+    val newValue: String
+)
+
+@Serializable
+data class JsonRpcRequestSetFieldValue(
+    val jsonrpc: String = "2.0",
+    val method: String,
+    val params: SetFieldValueParams,
+    val id: Int = 1
+)
+
 object RpcClient {
     private val client = HttpClient(Darwin) {
         install(ContentNegotiation) {
@@ -405,6 +422,37 @@ object RpcClient {
             }
         } catch (e: Exception) {
             Pair(null, "RPC Internal Error: ${e.message}")
+        }
+    }
+
+    suspend fun setFieldValue(className: String, id: String, fieldName: String, type: String, newValue: String): String? {
+        return try {
+            val requestBody = JsonRpcRequestSetFieldValue(
+                method = "setFieldValue",
+                params = SetFieldValueParams(className, id, fieldName, type, newValue)
+            )
+
+            val response: HttpResponse = withTimeoutOrNull(10000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return "RPC Timeout (10s)"
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcGenericStatusResponse>()
+                if (rpcResponse.error != null) {
+                    rpcResponse.error.message
+                } else if (rpcResponse.result?.error_message != null) {
+                    rpcResponse.result.error_message
+                } else {
+                    null // Success
+                }
+            } else {
+                "RPC HTTP Error: ${response.status.value}"
+            }
+        } catch (e: Exception) {
+            "RPC Internal Error: ${e.message}"
         }
     }
 

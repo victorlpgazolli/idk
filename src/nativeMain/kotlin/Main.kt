@@ -264,6 +264,24 @@ fun main(args: Array<String>) {
                             }
                         }
                     }
+                } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'e' || key.c == 'E')) {
+                    val rows = state.buildInspectRows()
+                    if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
+                        val row = rows[state.selectedClassIndex]
+                        if (row is InspectRow.InstanceAttributeRow) {
+                            val isBasicType = setOf("int", "long", "boolean", "byte", "short", "float", "double", "string", "charsequence", "char").contains(row.attribute.type.lowercase())
+                            if (isBasicType) {
+                                state.mode = AppMode.DEBUG_EDIT_ATTRIBUTE
+                                state.editingInstanceId = row.instanceId
+                                state.editingAttribute = row.attribute
+                                val currentValue = if (row.attribute.value == "null") "" else row.attribute.value.removeSurrounding("\"")
+                                state.inputBuffer = currentValue
+                                state.cursorPosition = state.inputBuffer.length
+                                onInputChanged(state)
+                                Renderer.render(state)
+                            }
+                        }
+                    }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS && (key.c == 'R' || key.c == 'r')) {
                     val rows = state.buildInspectRows()
                     if (rows.isNotEmpty() && state.selectedClassIndex in rows.indices) {
@@ -486,6 +504,37 @@ fun main(args: Array<String>) {
                         HookStore.save(state.appPackageName, state.activeHooks.toSet())
                         Renderer.render(state)
                     }
+                } else if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
+                    val newValue = state.inputBuffer
+                    val attr = state.editingAttribute
+                    val instId = state.editingInstanceId
+                    state.inputBuffer = ""
+                    state.cursorPosition = 0
+                    state.mode = AppMode.DEBUG_INSPECT_CLASS
+                    Renderer.render(state)
+                    
+                    if (attr != null && instId.isNotEmpty()) {
+                        scope.launch {
+                            val err = RpcClient.setFieldValue(
+                                state.inspectTargetClassName,
+                                instId,
+                                attr.name,
+                                attr.type,
+                                newValue
+                            )
+                            if (err == null) {
+                                // Refresh instance
+                                val (attrs, refreshErr) = RpcClient.inspectInstance(state.inspectTargetClassName, instId)
+                                if (refreshErr == null && attrs != null) {
+                                    state.sharedInspectInstanceResult.value = Pair(instId, attrs)
+                                } else {
+                                    state.sharedRpcError.value = refreshErr ?: "Unknown error"
+                                }
+                            } else {
+                                state.sharedRpcError.value = err
+                            }
+                        }
+                    }
                 } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
                     CommandExecutor.handleDebugEntrypoint(state, scope)
                     Renderer.render(state)
@@ -609,7 +658,12 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.Esc -> {
-                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
+                    state.inputBuffer = ""
+                    state.cursorPosition = 0
+                    state.mode = AppMode.DEBUG_INSPECT_CLASS
+                    Renderer.render(state)
+                } else if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
                     state.mode = AppMode.DEBUG_ENTRYPOINT
                     Renderer.render(state)
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
