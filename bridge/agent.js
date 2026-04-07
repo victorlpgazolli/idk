@@ -10,6 +10,28 @@ function javaToString(obj) {
     if (obj === null || obj === undefined) return "null";
     try {
         if (obj.$className) {
+            // 1. Handle Enum
+            try {
+                if (Java.use("java.lang.Enum").class.isInstance(obj)) {
+                    return obj.name();
+                }
+            } catch(e) {}
+
+            // 2. Handle Collection sizes
+            try {
+                if (Java.use("java.util.Collection").class.isInstance(obj)) {
+                    return obj.getClass().getSimpleName() + "(size=" + obj.size() + ")";
+                }
+                if (Java.use("java.util.Map").class.isInstance(obj)) {
+                    return obj.getClass().getSimpleName() + "(size=" + obj.size() + ")";
+                }
+            } catch(e) {}
+
+            // 3. Handle Arrays
+            if (obj.getClass().isArray()) {
+                return obj.getClass().getSimpleName() + "[" + Java.use("java.lang.reflect.Array").getLength(obj) + "]";
+            }
+
             // For Java wrappers, String.valueOf is the most robust way to get the Java toString() output
             return Java.use("java.lang.String").valueOf(obj);
         }
@@ -24,6 +46,29 @@ function javaToString(obj) {
             return "[Object]";
         }
     }
+}
+
+function getInstanceStatus(instance) {
+    var status = "active";
+    try {
+        Java.perform(function() {
+            var className = instance.getClass().getName();
+            // Check Activity
+            if (className.indexOf("Activity") !== -1 || className.indexOf("Fragment") !== -1) {
+                try {
+                    if (instance.isDestroyed()) status = "destroyed";
+                    else if (instance.isFinishing()) status = "finishing";
+                } catch(e) {}
+            }
+            // Check View
+            if (className.indexOf("View") !== -1) {
+                try {
+                    if (!instance.isAttachedToWindow()) status = "detached";
+                } catch(e) {}
+            }
+        });
+    } catch(e) {}
+    return status;
 }
 
 rpc.exports = {
@@ -124,7 +169,7 @@ rpc.exports = {
                                 instances.push({
                                     id: id,
                                     handle: hndl,
-                                    summary: instance.toString()
+                                    summary: instance.toString() + " (" + getInstanceStatus(instance) + ")"
                                 });
                             }
                         }
@@ -192,7 +237,7 @@ rpc.exports = {
                         
                         attributes.push({ 
                             name: keyStr, 
-                            type: "MapEntry", 
+                            type: childClassName || "MapEntry", 
                             value: valStr, 
                             childId: childId, 
                             childClassName: childClassName,
@@ -233,7 +278,7 @@ rpc.exports = {
                         
                         attributes.push({ 
                             name: name, 
-                            type: "Element", 
+                            type: childClassName || "Element", 
                             value: valStr, 
                             childId: childId, 
                             childClassName: childClassName,
@@ -269,7 +314,7 @@ rpc.exports = {
                         
                         attributes.push({ 
                             name: name, 
-                            type: "Element", 
+                            type: childClassName || "Element", 
                             value: valStr, 
                             childId: childId, 
                             childClassName: childClassName,
@@ -321,7 +366,7 @@ rpc.exports = {
                         }
                         attributes.push({ 
                             name: name, 
-                            type: type, 
+                            type: childClassName || type, 
                             value: valStr, 
                             childId: childId, 
                             childClassName: childClassName,
