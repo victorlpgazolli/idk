@@ -23,6 +23,19 @@ object Renderer {
     private const val K_MAGENTA = "\u001b[38;2;195;69;204m"
     private const val K_PINK = "\u001b[38;2;227;68;156m"
 
+    // Design system — color language
+    private const val C_ORANGE   = "\u001b[38;5;208m"  // field / attribute
+    private const val C_PURPLE   = "\u001b[38;5;135m"  // method
+    private const val C_BLUE     = "\u001b[38;5;75m"   // object reference / IDK brand
+    private const val C_GREEN    = "\u001b[38;5;71m"   // active instance / live count
+    private const val C_DARK_GRAY = "\u001b[38;5;238m" // destroyed instances
+    private const val C_MID_GRAY  = "\u001b[38;5;244m" // secondary text
+    private const val C_SEP      = "\u001b[38;5;237m"  // separator lines
+
+    // Header background (simulated via bold separator)
+    private const val C_HEADER_BG = "\u001b[48;5;235m" // dark bg for header bar
+
+    // Keep existing (used elsewhere)
     private const val DIM_GRAY = "\u001b[90m"
     private const val WHITE = "\u001b[97m"
     private const val LIGHT_GRAY = "\u001b[38;5;250m"
@@ -32,14 +45,12 @@ object Renderer {
     private const val TYPE_STRING = "\u001b[38;5;173m"
     private const val TYPE_OTHER = "\u001b[38;5;43m"
     private const val RESET = "\u001b[0m"
-    
-    // Java Syntax Highlighting
-    private const val J_MODIFIER = "\u001b[38;5;208m" // Orange
-    private const val J_TYPE = "\u001b[38;5;114m"     // Greenish/Cyan
-    private const val J_PACKAGE = "\u001b[90m"        // Dim Gray
-    private const val J_CLASS = "\u001b[97m"          // White
-    private const val J_METHOD = "\u001b[38;5;220m"    // Yellow
-    private const val J_NUMBER = "\u001b[38;5;173m"    // Orange/Brown
+    private const val J_MODIFIER = "\u001b[38;5;208m"
+    private const val J_TYPE = "\u001b[38;5;114m"
+    private const val J_PACKAGE = "\u001b[90m"
+    private const val J_CLASS = "\u001b[97m"
+    private const val J_METHOD = "\u001b[38;5;220m"
+    private const val J_NUMBER = "\u001b[38;5;173m"
     
     private const val LOGO = """
 ${K_MAGENTA}      ▄▄▄▄▄  ${K_MAGENTA}▄▄▄▄▄▄▄▄▄    ${K_PINK}▄▄▄▄    ▄▄▄▄ $RESET
@@ -56,6 +67,59 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     Try typing 'debug' to start a new debug session.
     Press Ctrl+C to exit.
 """
+
+    private fun renderHeader(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val pkg = if (state.appPackageName.isNotEmpty()) state.appPackageName else "no package"
+        val statusText = "● connected"
+        val leftText = " IDK"
+
+        // Visible character counts (no escape codes)
+        val leftLen  = leftText.length          // 4
+        val midLen   = 5 + pkg.length           // " · " + pkg + " · " = 3+pkg+3 → simplified
+        val rightLen = statusText.length + 1    // + trailing space
+
+        buf.append(C_HEADER_BG)
+        buf.append(C_BLUE).append(leftText).append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append("  ·  ").append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append(pkg).append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append("  ·  ").append(RESET).append(C_HEADER_BG)
+
+        // Pad to push status to the right
+        val visibleSoFar = leftLen + 5 + pkg.length + 5
+        val padding = maxOf(1, termWidth - visibleSoFar - rightLen)
+        buf.append(" ".repeat(padding))
+
+        buf.append(C_GREEN).append(statusText).append(RESET).append(C_HEADER_BG)
+        buf.append(" ")
+        buf.append(RESET).append("\n")
+
+        // Separator
+        buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+    }
+
+    private fun renderBreadcrumb(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val currentStage = when (state.mode) {
+            AppMode.DEBUG_CLASS_FILTER -> 0
+            AppMode.DEBUG_INSPECT_CLASS, AppMode.DEBUG_EDIT_ATTRIBUTE -> 1
+            AppMode.DEBUG_HOOK_WATCH -> 2
+            else -> -1
+        }
+
+        val stages = listOf("Classes", "Inspect", "Watch")
+        val sep = " › "
+
+        buf.append(" ")
+        stages.forEachIndexed { index, name ->
+            if (index > 0) buf.append(C_SEP).append(sep).append(RESET)
+            if (index == currentStage) {
+                buf.append(WHITE).append(name).append(RESET)
+            } else {
+                buf.append(DIM_GRAY).append(name).append(RESET)
+            }
+        }
+        buf.append("\n")
+        buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+    }
 
     fun render(state: AppState) {
         val (termWidth, termHeight) = Terminal.getSize()
@@ -75,20 +139,18 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderSuggestions(buf, state)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
-            renderLogo(buf)
-            renderWelcome(buf)
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
             renderClassFetchStatus(buf, state)
-            renderCtrlCWarning(buf, state)
-            renderInputBox(buf, state, width)
+            renderInputBox(buf, state, termWidth - 2)
             renderClassList(buf, state, termWidth, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS || state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
-            renderLogo(buf)
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
             renderCtrlCWarning(buf, state)
-            renderInspectHeader(buf, state, width)
-            buf.append("\n")
             if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
-                renderInputBox(buf, state, width)
+                renderInputBox(buf, state, termWidth - 2)
             }
             renderInspectClassList(buf, state, termWidth, termHeight)
             if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
@@ -100,6 +162,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
         } else if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
             renderHookWatchMode(buf, state, termWidth, termHeight)
         }
 
@@ -112,21 +176,60 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderFooter(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
-        val footerText = when (state.mode) {
-            AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
-            AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
-            AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [\\] Count Instances  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [E] Edit  [W] Watch Changes  [I] Inspect Class  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [I] Inspect Class  [C] Clear Log  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_EDIT_ATTRIBUTE -> " [Type] New Value  [Enter] Save  [Esc] Cancel  [Ctrl+C] Quit "
+        data class FooterKey(val key: String, val label: String)
+
+        val keys: List<FooterKey> = when (state.mode) {
+            AppMode.DEFAULT -> listOf(
+                FooterKey("↑↓", "History"),
+                FooterKey("Tab", "Autocomplete"),
+                FooterKey("Enter", "Execute"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_ENTRYPOINT -> listOf(
+                FooterKey("↑↓", "Navigate"),
+                FooterKey("Enter", "Select"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_CLASS_FILTER -> listOf(
+                FooterKey("↑↓", "Navigate"),
+                FooterKey("Enter", "Inspect"),
+                FooterKey("\\", "Count"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_INSPECT_CLASS -> listOf(
+                FooterKey("H", "Hook"),
+                FooterKey("I", "Inspect child"),
+                FooterKey("W", "Watch"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_HOOK_WATCH -> listOf(
+                FooterKey("D", "Remove hook"),
+                FooterKey("C", "Clear log"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_EDIT_ATTRIBUTE -> listOf(
+                FooterKey("Enter", "Save"),
+                FooterKey("Esc", "Cancel"),
+                FooterKey("Ctrl+C", "Quit")
+            )
         }
-        val padding = maxOf(0, termWidth - footerText.length)
-        
+
         buf.append(Ansi.moveTo(termHeight, 1))
-        buf.append("\u001b[7m") // Reverse Video
-        buf.append(footerText)
-        buf.append(" ".repeat(padding))
-        buf.append(Ansi.RESET)
+        buf.append(C_HEADER_BG)
+        buf.append(" ")
+        var visibleLen = 1
+        for (k in keys) {
+            // Colored key label + dim description
+            buf.append(WHITE).append(k.key).append(RESET).append(C_HEADER_BG)
+            buf.append(C_MID_GRAY).append(" ${k.label}").append(RESET).append(C_HEADER_BG)
+            buf.append("   ")
+            visibleLen += k.key.length + 1 + k.label.length + 3
+        }
+        buf.append(" ".repeat(maxOf(0, termWidth - visibleLen)))
+        buf.append(RESET)
     }
 
     private fun renderLogo(buf: StringBuilder) {

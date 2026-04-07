@@ -11,7 +11,7 @@ object ListRenderer {
     }
 
     fun selectionPrefix(isSelected: Boolean, indent: String = ""): String {
-        return if (isSelected) "$indent${Ansi.GREEN}> ${Ansi.RESET}" else "$indent  "
+        return if (isSelected) "$indent\u001b[38;5;75m› ${Ansi.RESET}" else "$indent  "
     }
 
     fun spinnerFrame(frameCount: Int): String {
