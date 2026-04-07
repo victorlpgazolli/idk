@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import subprocess
+import argparse
 from jdwp_frida import run_jdwp
 
 logging.basicConfig(level=logging.INFO)
