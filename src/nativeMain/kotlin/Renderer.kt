@@ -635,7 +635,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
                     // Right-align the H hint: compute visible length
-                    val prefixVisible = 8  // 4 indent + 2 selection marker + 2 extra spaces
+                    val prefixVisible = 10  // 4 indent + 4 selection marker + 2 extra spaces
                     val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
                     val pad = maxOf(1, termWidth - prefixVisible - memberName.length - hintLen)
 
@@ -654,7 +654,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val paramsStr  = "${DIM_GRAY}($params)${RESET}"
                     val hookedStr  = if (isHooked) " ${C_PURPLE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
-                    val prefixVisible = 8  // 4 indent + 2 selection marker + 2 extra spaces
+                    val prefixVisible = 10  // 4 indent + 4 selection marker + 2 extra spaces
                     val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
                     val visibleLen = memberName.length + 2 + params.length  // name + "(" + params + ")"
                     val pad = maxOf(1, termWidth - prefixVisible - visibleLen - hintLen)
