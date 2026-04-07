@@ -401,81 +401,79 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
     private fun renderClassList(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         if (state.rpcError != null) {
-            buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
+            buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(RESET).append("\n")
             return
         }
 
         if (state.isFetchingClasses && state.displayedClasses.isEmpty()) {
-            buf.append(Ansi.DIM).append("  Fetching classes...").append(Ansi.RESET).append("\n")
-            return
+            return // spinner shown by renderClassFetchStatus above
         }
 
         if (state.displayedClasses.isEmpty() && state.inputBuffer.isNotEmpty() && !state.isFetchingClasses) {
-            val emptyBox = """
-                ${Ansi.DIM}╭─────────────────────────────╮${Ansi.RESET}
-                ${Ansi.DIM}│${Ansi.RESET}      No matches found       ${Ansi.DIM}│${Ansi.RESET}
-                ${Ansi.DIM}╰─────────────────────────────╯${Ansi.RESET}
-            """.trimIndent()
-            for (line in emptyBox.lines()) {
-                buf.append("   ").append(line).append("\n")
-            }
+            buf.append(DIM_GRAY).append("  No matches found.\n").append(RESET)
             return
         }
 
-        val fixedLines = 20 // +1 for footer
+        // Each selected row takes 2 lines (name + package); others take 1 line.
+        // Conservative: reserve enough room assuming selected row is always visible.
+        val fixedLines = 9
         val maxItems = maxOf(3, termHeight - fixedLines - 1)
-        val (startIdx, endIdx) = ListRenderer.computeViewport(state.displayedClasses.size, state.selectedClassIndex, maxItems)
-        
+
+        val (startIdx, endIdx) = ListRenderer.computeViewport(
+            state.displayedClasses.size, state.selectedClassIndex, maxItems
+        )
+
         for (i in startIdx until endIdx) {
-            val className = state.displayedClasses[i]
+            val className  = state.displayedClasses[i]
             val isSelected = i == state.selectedClassIndex
-            val prefix = ListRenderer.selectionPrefix(isSelected, "  ")
-            val suffix = Ansi.RESET
-            
-            val query = state.lastSearchedParam
-            
-            val lastDot = className.lastIndexOf('.')
-            val packagePart = if (lastDot != -1) className.substring(0, lastDot + 1) else ""
-            val namePart = if (lastDot != -1) className.substring(lastDot + 1) else className
-            
-            val packageBaseColor = if (isSelected) Ansi.GREEN else DIM_GRAY
-            val nameBaseColor = WHITE
-            
-            fun formatPart(text: String, baseColor: String): String {
-                if (query.isEmpty() || !text.contains(query, ignoreCase = true)) {
-                    return "$baseColor$text"
-                }
-                val sb = StringBuilder()
-                var currentPos = 0
-                val lowerText = text.lowercase()
-                val lowerQuery = query.lowercase()
-                
+            val prefix     = ListRenderer.selectionPrefix(isSelected, "  ")
+
+            val lastDot     = className.lastIndexOf('.')
+            val packagePart = if (lastDot != -1) className.substring(0, lastDot) else ""
+            val namePart    = if (lastDot != -1) className.substring(lastDot + 1) else className
+
+            val query           = state.lastSearchedParam
+            val nameBaseColor   = if (isSelected) WHITE else LIGHT_GRAY
+            val packageBaseColor = DIM_GRAY
+
+            fun highlight(text: String, baseColor: String): String {
+                if (query.isEmpty() || !text.contains(query, ignoreCase = true)) return "$baseColor$text"
+                val sb  = StringBuilder()
+                var pos = 0
+                val lo  = text.lowercase()
+                val lq  = query.lowercase()
                 while (true) {
-                    val start = lowerText.indexOf(lowerQuery, currentPos)
-                    if (start == -1) {
-                        sb.append(baseColor).append(text.substring(currentPos))
-                        break
-                    }
-                    sb.append(baseColor).append(text.substring(currentPos, start))
-                    sb.append(Ansi.YELLOW).append(text.substring(start, start + query.length))
-                    currentPos = start + query.length
+                    val start = lo.indexOf(lq, pos)
+                    if (start == -1) { sb.append(baseColor).append(text.substring(pos)); break }
+                    sb.append(baseColor).append(text.substring(pos, start))
+                    sb.append("\u001b[38;5;220m").append(text.substring(start, start + query.length)) // yellow highlight
+                    pos = start + query.length
                 }
                 return sb.toString()
             }
-            
-            var formattedName = formatPart(packagePart, packageBaseColor) + formatPart(namePart, nameBaseColor)
-            
+
+            // Count badge
             val count = state.instanceCounts[className]
-            if (count != null) {
-                formattedName += " ${Ansi.WHITE}[$count]${Ansi.RESET}"
+            val countBadge = when {
+                count == null -> ""
+                count > 0     -> "  ${C_GREEN}$count inst${RESET}"
+                else          -> "  ${DIM_GRAY}0 inst${RESET}"
             }
-            
+
+            // Name row
             buf.append(prefix)
-            buf.append(formattedName)
-            buf.append(suffix)
-            buf.append("\n")
+            buf.append(highlight(namePart, nameBaseColor))
+            buf.append(countBadge)
+            buf.append(RESET).append("\n")
+
+            // Package row — only for selected item
+            if (isSelected && packagePart.isNotEmpty()) {
+                buf.append("    ")  // align under name (4 spaces: 2 indent + 2 from prefix)
+                buf.append(highlight(packagePart, packageBaseColor))
+                buf.append(RESET).append("\n")
+            }
         }
-        
+
         ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, state.displayedClasses.size, termWidth)
     }
 
