@@ -73,3 +73,4 @@ gradle/wrapper/gradle-wrapper.jar
 gradlew
 gradlew.bat
 __pycache__
+.worktrees/

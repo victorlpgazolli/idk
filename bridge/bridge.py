@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import subprocess
+import argparse
 from jdwp_frida import run_jdwp
 
 logging.basicConfig(level=logging.INFO)
@@ -69,15 +70,20 @@ class RpcHandler(BaseHTTPRequestHandler):
             pass
 
 class FridaBridge:
-    def __init__(self):
+    def __init__(self, serial=None):
         self.device = None
         self.session = None
         self.script = None
+        self.serial = serial
         self._lock = threading.Lock()
 
     def _get_device(self):
         if not self.device:
-            self.device = frida.get_usb_device(timeout=2)
+            if self.serial:
+                logging.info(f"Targeting specific device serial: {self.serial}")
+                self.device = frida.get_device_manager().get_device(self.serial, timeout=2)
+            else:
+                self.device = frida.get_usb_device(timeout=2)
         return self.device
 
     def get_session(self):
@@ -194,8 +200,13 @@ class FridaBridge:
             self._detach_frida()
 
             logging.info(f"Setting up adb forward tcp:{port} jdwp:{pid}")
+            adb_cmd = ["adb"]
+            if self.serial:
+                adb_cmd.extend(["-s", self.serial])
+            adb_cmd.extend(["forward", f"tcp:{port}", f"jdwp:{pid}"])
+
             r = subprocess.run(
-                ["adb", "forward", f"tcp:{port}", f"jdwp:{pid}"],
+                adb_cmd,
                 capture_output=True, text=True
             )
             if r.returncode != 0:
@@ -212,9 +223,13 @@ class FridaBridge:
             }
 
         elif method == "checkOrPushGadget":
+            adb_base = ["adb"]
+            if self.serial:
+                adb_base.extend(["-s", self.serial])
+
             if params.get("loadlib"):
                 check = subprocess.run(
-                    ["adb", "shell", "ls", "/data/local/tmp/frida-gadget.so"],
+                    adb_base + ["shell", "ls", "/data/local/tmp/frida-gadget.so"],
                     capture_output=True, text=True
                 )
                 if check.returncode == 0:
@@ -222,7 +237,7 @@ class FridaBridge:
                 else:
                     logging.info(f"Pushing {params['loadlib']}...")
                     r = subprocess.run(
-                        ["adb", "push", params["loadlib"], "/data/local/tmp/frida-gadget.so"],
+                        adb_base + ["push", params["loadlib"], "/data/local/tmp/frida-gadget.so"],
                         capture_output=True, text=True
                     )
                     if r.returncode != 0:
@@ -230,7 +245,7 @@ class FridaBridge:
                     logging.info(f"adb push ok: {r.stdout.strip()}")
             else:
                 check = subprocess.run(
-                    ["adb", "shell", "ls", "/data/local/tmp/frida-gadget.so"],
+                    adb_base + ["shell", "ls", "/data/local/tmp/frida-gadget.so"],
                     capture_output=True, text=True
                 )
                 if check.returncode != 0:
@@ -246,7 +261,8 @@ class FridaBridge:
                     cmd=params.get("cmd"),
                     loadlib=params.get("loadlib"),
                     break_on=params.get("break_on", "android.os.Handler.dispatchMessage"),
-                    package_name=params.get("package_name")
+                    package_name=params.get("package_name"),
+                    serial=self.serial
                 )
             except Exception as e:
                 # run_jdwp failed, best-effort re-attach
@@ -283,10 +299,12 @@ class FridaBridge:
         else:
             raise Exception(f"Method {method} not found")
 
-def run_server(port=8080):
+def run_server(port=8080, serial=None):
     server = ThreadingHTTPServer(('127.0.0.1', port), RpcHandler)
-    server.bridge = FridaBridge()
+    server.bridge = FridaBridge(serial=serial)
     logging.info(f"Starting JSON-RPC Bridge on http://127.0.0.1:{port}...")
+    if serial:
+        logging.info(f"Targeting ADB serial: {serial}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -295,4 +313,9 @@ def run_server(port=8080):
     logging.info("Server stopped.")
 
 if __name__ == '__main__':
-    run_server()
+    parser = argparse.ArgumentParser(description='idk JSON-RPC Bridge')
+    parser.add_argument('--port', type=int, default=8080, help='Listen port (default: 8080)')
+    parser.add_argument('--serial', type=str, help='Target ADB device serial number')
+    args = parser.parse_args()
+    
+    run_server(port=args.port, serial=args.serial)
