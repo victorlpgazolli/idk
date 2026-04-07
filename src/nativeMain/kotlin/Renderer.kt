@@ -712,18 +712,24 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         val attrType = row.attribute.type
                         val attrVal  = row.attribute.value
 
-                        // Truncate value if needed
-                        val maxValLen = maxOf(10, termWidth - visualIndent - attrName.length - attrType.length - 10)
-                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxValLen - 3) + "..." else attrVal
-
                         val isObjectRef = row.attribute.childId != null
+                        
+                        // Calculate space for value
+                        val labelLen = if (isObjectRef) {
+                            attrName.length + 3 + attrType.length + 6 // "name (Type)  → I"
+                        } else {
+                            attrName.length + 2 // "name: "
+                        }
+                        val maxValLen = maxOf(10, termWidth - prefixVisible - labelLen - 5)
+                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxValLen - 3) + "..." else attrVal
 
                         buf.append(prefix)
                         if (isObjectRef) {
-                            // Object reference: purple name + inspect hint
+                            // Object reference: purple name + (Type) in dim gray + value preview
                             buf.append(C_PURPLE).append(attrName).append(RESET)
+                            buf.append(" ").append(DIM_GRAY).append("(").append(attrType).append(")").append(RESET)
                             buf.append(DIM_GRAY).append(": ").append(RESET)
-                            buf.append(C_BLUE).append(attrType).append(RESET)
+                            buf.append(C_MID_GRAY).append(displayVal).append(RESET)
                             buf.append(C_ORANGE).append("  → I").append(RESET)
                         } else {
                             // Primitive / string
