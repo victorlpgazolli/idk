@@ -751,79 +751,64 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderHookWatchMode(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
-        val leftWidth = (termWidth * 0.4).toInt()
-        val rightWidth = termWidth - leftWidth - 1
-        val contentHeight = termHeight - 2 // Footer and one line for header
+        // Header and breadcrumb are rendered by render() before this call.
+        // Available height: total height minus header(2) + breadcrumb(2) + footer(1) = 5 lines overhead.
+        val contentHeight = termHeight - 5
 
-        // Header
-        val leftTitle = " Monitored Items ".padStart((leftWidth + 17) / 2).padEnd(leftWidth)
-        val rightTitle = " Live Event Log ".padStart((rightWidth + 16) / 2).padEnd(rightWidth)
-        buf.append("\u001b[7m").append(leftTitle).append(Ansi.RESET)
-        buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
-        buf.append("\u001b[7m").append(rightTitle).append(Ansi.RESET).append("\n")
+        val leftWidth  = (termWidth * 0.22).toInt().coerceAtLeast(12)
+        val rightWidth = termWidth - leftWidth - 1  // 1 for separator
+
+        // ── Column headers ──────────────────────────────────────────────────────
+        val leftHeader  = " HOOKED"
+        val rightHeader = " EVENT LOG"
+        buf.append(C_MID_GRAY)
+        buf.append(leftHeader.padEnd(leftWidth))
+        buf.append("│")
+        buf.append(rightHeader)
+        buf.append(RESET).append("\n")
+        buf.append(C_SEP)
+        buf.append("─".repeat(leftWidth)).append("┼").append("─".repeat(rightWidth))
+        buf.append(RESET).append("\n")
+
+        val availableHeight = contentHeight - 2  // subtract column header rows
+
+        // ── Build event log lines ────────────────────────────────────────────────
+        // Events are displayed newest-first (bottom of list = oldest).
+        val eventLines = mutableListOf<String>()
+        for (event in state.hookEvents.asReversed()) {
+            eventLines.addAll(formatEventBlock(event, rightWidth - 2))
+        }
+        // Apply scroll offset
+        val logStart  = state.hookLogScrollOffset.coerceIn(0, maxOf(0, eventLines.size - availableHeight))
+        val logSlice  = eventLines.drop(logStart).take(availableHeight)
 
         val activeHooksList = state.activeHooks.toList()
-        
-        for (y in 0 until contentHeight) {
-            // Left Panel: Monitored Items
+
+        // ── Render rows ──────────────────────────────────────────────────────────
+        for (y in 0 until availableHeight) {
+            // Left: HOOKED list
             if (y < activeHooksList.size) {
-                val hook = activeHooksList[y]
+                val hook       = activeHooksList[y]
                 val isSelected = y == state.selectedHookIndex
-                val selectionMarker = ListRenderer.selectionPrefix(isSelected, "")
-                val check = if (hook.enabled) "[✓]" else "[ ]"
-                val color = if (hook.type == HookType.METHOD) Ansi.YELLOW else Ansi.BLUE
-                
-                val displayName = extractMemberName(hook.memberSignature)
-                var lineText = "$selectionMarker$check $color$displayName${Ansi.RESET}"
-                val visibleLen = 2 + check.length + 1 + displayName.length
-                if (visibleLen > leftWidth) {
-                    buf.append(lineText.take(leftWidth - 3 + (lineText.length - visibleLen))).append("...")
-                } else {
-                    buf.append(lineText).append(" ".repeat(leftWidth - visibleLen))
-                }
+                val selMark    = if (isSelected) "› " else "  "
+                val color      = if (hook.type == HookType.METHOD) C_PURPLE else C_ORANGE
+                val name       = extractMemberName(hook.memberSignature)
+                val selColor   = if (isSelected) WHITE else DIM_GRAY
+
+                val cell = "$selColor$selMark$color$name$RESET"
+                val visLen = 2 + name.length
+                buf.append(cell)
+                buf.append(" ".repeat(maxOf(0, leftWidth - visLen)))
             } else {
                 buf.append(" ".repeat(leftWidth))
             }
 
-            buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
+            buf.append(C_SEP).append("│").append(RESET)
 
-            // Right Panel: Live Event Log
-            val logIndex = state.hookEvents.size - 1 - y - state.hookLogScrollOffset
-            if (logIndex >= 0 && logIndex < state.hookEvents.size) {
-                val event = state.hookEvents[logIndex]
-                val time = formatTime(event.timestamp)
-                val typeLabel = if (event.target.type == HookType.METHOD) "CALL" else "CHANGE"
-                val countStr = if (event.count > 1) " (x${event.count})" else ""
-                
-                var content = when (event.target.type) {
-                    HookType.METHOD -> {
-                        val args = event.data["args"] ?: ""
-                        val ret = event.data["return"] ?: ""
-                        val name = extractMemberName(event.target.memberSignature)
-                        "$typeLabel $name($args) -> $ret"
-                    }
-                    HookType.FIELD -> {
-                        val value = event.data["value"] ?: ""
-                        val name = extractMemberName(event.target.memberSignature)
-                        "$typeLabel $name: $value"
-                    }
-                }
-                
-                val maxContentLen = rightWidth - 11 - countStr.length
-                if (content.length > maxContentLen) {
-                    content = content.take(maxContentLen - 3) + "..."
-                }
-                
-                val logLine = "${Ansi.DIM}[$time]${Ansi.RESET} $content${Ansi.YELLOW}$countStr${Ansi.RESET}"
-                val visibleLogLen = 11 + content.length + countStr.length
-                
-                buf.append(logLine)
-                if (visibleLogLen < rightWidth) {
-                    buf.append(" ".repeat(rightWidth - visibleLogLen))
-                }
-            } else {
-                buf.append(" ".repeat(rightWidth))
-            }
+            // Right: event log
+            val line = logSlice.getOrNull(y) ?: ""
+            buf.append(line)
+            // No need to pad — newline follows
             buf.append("\n")
         }
     }
@@ -835,6 +820,130 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val minutes = (timestamp / (1000 * 60)) % 60
         val hours = (timestamp / (1000 * 60 * 60) + 24 - 3) % 24 // Quick hack for UTC-3, or just keep it simple
         return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    }
+
+    /**
+     * Formats a hook event into a list of display lines (no ANSI in length calculations).
+     * Each element is a Pair<String, Int> = (ansi-formatted line, visible character count).
+     */
+    private fun formatEventBlock(event: HookEvent, maxWidth: Int): List<String> {
+        val lines = mutableListOf<String>()
+
+        val time       = formatTime(event.timestamp)
+        val memberName = extractMemberName(event.target.memberSignature)
+        val instanceId = event.data["instanceId"] ?: event.data["handle"] ?: ""
+        val hashSuffix = if (instanceId.isNotEmpty()) "  ${DIM_GRAY}@${instanceId.take(7)}${RESET}" else ""
+        val countSuffix = if (event.count > 1) " ${DIM_GRAY}×${event.count}${RESET}" else ""
+
+        when (event.target.type) {
+            HookType.FIELD -> {
+                val value = event.data["value"] ?: ""
+                val badgeColor = C_ORANGE
+                val badge = "${badgeColor}FIELD${RESET}"
+                val header = "${DIM_GRAY}$time${RESET}  $badge  ${WHITE}$memberName${RESET}$hashSuffix$countSuffix"
+                lines.add(header)
+
+                // old → new from value string (bridge may send "old|new" or just new)
+                val parts = value.split("|")
+                if (parts.size == 2) {
+                    lines.add("  ${Ansi.RED}${parts[0].trim()}${RESET}  ${DIM_GRAY}→${RESET}  ${C_GREEN}${parts[1].trim()}${RESET}")
+                } else {
+                    lines.add("  ${C_GREEN}$value${RESET}")
+                }
+            }
+            HookType.METHOD -> {
+                val args   = event.data["args"] ?: ""
+                val ret    = event.data["return"] ?: "void"
+                val badgeColor = C_PURPLE
+                val badge = "${badgeColor}METHOD${RESET}"
+                val header = "${DIM_GRAY}$time${RESET}  $badge  ${WHITE}$memberName${RESET}$hashSuffix$countSuffix"
+                lines.add(header)
+
+                // Args
+                if (args.isNotEmpty()) {
+                    lines.add("  ${DIM_GRAY}args:${RESET}")
+                    val argList = args.split(",").map { it.trim() }
+                    argList.forEach { arg ->
+                        val truncated = if (arg.length > maxWidth - 6) arg.take(maxWidth - 9) + "..." else arg
+                        lines.add("    ${C_MID_GRAY}$truncated${RESET}")
+                    }
+                }
+
+                // Return value
+                lines.add("  ${DIM_GRAY}returned:${RESET}")
+                val retLines = formatValue(ret, 4, maxWidth)
+                lines.addAll(retLines)
+            }
+        }
+
+        lines.add("") // blank separator between events
+        return lines
+    }
+
+    /**
+     * Formats a value string with indentation. Detects ClassName{k=v, ...} patterns
+     * and renders them with one field per line. Nested objects beyond depth 1 collapse
+     * as `{ ··· }`.
+     */
+    private fun formatValue(value: String, indent: Int, maxWidth: Int): List<String> {
+        val pad = " ".repeat(indent)
+
+        // Detect object toString pattern: SomeClass{field=val, ...}  or  SomeClass{...}
+        val objectPattern = Regex("""^(\w[\w.${'$'}]*)\{(.*)\}$""", RegexOption.DOT_MATCHES_ALL)
+        val match = objectPattern.matchEntire(value.trim())
+
+        if (match != null) {
+            val className = match.groupValues[1]
+            val body      = match.groupValues[2]
+            val lines     = mutableListOf<String>()
+            lines.add("$pad${C_BLUE}$className${RESET}${DIM_GRAY} {${RESET}")
+
+            // Split fields by ", " but be careful with nested braces
+            val fields = splitTopLevelCommas(body)
+            fields.forEach { field ->
+                val eqIdx = field.indexOf('=')
+                if (eqIdx != -1) {
+                    val k = field.substring(0, eqIdx).trim()
+                    val v = field.substring(eqIdx + 1).trim()
+                    // Collapse any nested objects
+                    val vDisplay = if (v.contains('{')) "${v.substringBefore('{').trim()}${DIM_GRAY} { ··· }${RESET}" else v
+                    val truncated = if (vDisplay.length > maxWidth - indent - k.length - 4) vDisplay.take(maxWidth - indent - k.length - 7) + "..." else vDisplay
+                    lines.add("$pad  ${C_ORANGE}$k${RESET}${DIM_GRAY}: ${RESET}$truncated")
+                } else {
+                    lines.add("$pad  ${C_MID_GRAY}${field.take(maxWidth - indent - 2)}${RESET}")
+                }
+            }
+            lines.add("$pad${DIM_GRAY}}${RESET}")
+            return lines
+        }
+
+        // Primitive / string
+        val truncated = if (value.length > maxWidth - indent) value.take(maxWidth - indent - 3) + "..." else value
+        return listOf("$pad${C_MID_GRAY}$truncated${RESET}")
+    }
+
+    /**
+     * Splits a comma-separated string while ignoring commas inside braces/brackets.
+     */
+    private fun splitTopLevelCommas(s: String): List<String> {
+        val result  = mutableListOf<String>()
+        var depth   = 0
+        val current = StringBuilder()
+        for (ch in s) {
+            when (ch) {
+                '{', '[', '(' -> { depth++; current.append(ch) }
+                '}', ']', ')' -> { depth--; current.append(ch) }
+                ',' -> if (depth == 0) {
+                    result.add(current.toString().trim())
+                    current.clear()
+                } else {
+                    current.append(ch)
+                }
+                else -> current.append(ch)
+            }
+        }
+        if (current.isNotBlank()) result.add(current.toString().trim())
+        return result
     }
 
     private fun highlightJavaSignature(signature: String): String {
