@@ -421,6 +421,23 @@ rpc.exports = {
                 } else {
                     if (monitoredFields[className + methodSig]) return;
                     
+                    var isStaticField = false;
+                    try {
+                        var clazz = Java.use(className);
+                        var f = clazz.class.getDeclaredField(methodName);
+                        var Modifier = Java.use("java.lang.reflect.Modifier");
+                        if (Modifier.isStatic(f.getModifiers())) {
+                            isStaticField = true;
+                        }
+                    } catch (e) {
+                        console.error("Error checking field " + methodName + " on " + className + ": " + e);
+                    }
+
+                    if (!isStaticField) {
+                        console.warn("Field " + methodName + " is not static or not found. Instance field hooking is not supported.");
+                        return;
+                    }
+
                     monitoredFields[className + methodSig] = {
                         className: className,
                         fieldName: methodName,
@@ -436,13 +453,16 @@ rpc.exports = {
                                     try {
                                         var clazz = Java.use(info.className);
                                         var val = clazz[info.fieldName].value;
-                                        var valStr = val !== null ? val.toString() : "null";
-                                        if (valStr !== info.lastValue) {
+                                        var valStr = javaToString(val);
+                                        if (info.lastValue === undefined) {
+                                            info.lastValue = valStr;
+                                        } else if (valStr !== info.lastValue) {
+                                            var oldVal = info.lastValue;
                                             info.lastValue = valStr;
                                             hookEvents.push({
                                                 timestamp: Date.now(),
                                                 target: { className: info.className, memberSignature: info.signature, type: "FIELD" },
-                                                data: { value: valStr }
+                                                data: { value: oldVal + " | " + valStr }
                                             });
                                         }
                                     } catch (e) {}
