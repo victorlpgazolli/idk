@@ -635,7 +635,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
                     // Right-align the H hint: compute visible length
-                    val pad = maxOf(1, termWidth - prefix.length.coerceAtMost(4) - memberName.length - 5)
+                    val prefixVisible = 8  // 4 indent + 2 selection marker + 2 extra spaces
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val pad = maxOf(1, termWidth - prefixVisible - memberName.length - hintLen)
 
                     buf.append(prefix).append("  ")
                         .append(nameStr)
@@ -652,8 +654,10 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val paramsStr  = "${DIM_GRAY}($params)${RESET}"
                     val hookedStr  = if (isHooked) " ${C_PURPLE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
-                    val visibleLen = memberName.length + 2 + params.length + 3
-                    val pad = maxOf(1, termWidth - 6 - visibleLen)
+                    val prefixVisible = 8  // 4 indent + 2 selection marker + 2 extra spaces
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val visibleLen = memberName.length + 2 + params.length  // name + "(" + params + ")"
+                    val pad = maxOf(1, termWidth - prefixVisible - visibleLen - hintLen)
 
                     buf.append(prefix).append("  ")
                         .append(nameStr).append(paramsStr)
@@ -668,8 +672,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val treeLine   = if (row.isLast) "└ " else "├ "
                     val idxLabel   = "inst#${row.instance.id.takeLast(4)}"
                     val hashLabel  = "@${row.instance.handle.take(8)}"
-                    val statusStr  = if (isDestroyed) "${C_DARK_GRAY}destroyed${RESET}" else "${C_GREEN}active${RESET}"
-
                     if (isDestroyed) {
                         buf.append(prefix)
                             .append(C_DARK_GRAY).append(treeLine).append(idxLabel)
@@ -682,7 +684,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                             .append(DIM_GRAY).append(" · ").append(RESET)
                             .append(DIM_GRAY).append(hashLabel).append(RESET)
                             .append(DIM_GRAY).append(" · ").append(RESET)
-                            .append(statusStr).append("\n")
+                            .append(C_GREEN).append("active").append(RESET).append("\n")
                     }
                 }
                 is InspectRow.InstanceAttributeRow -> {
