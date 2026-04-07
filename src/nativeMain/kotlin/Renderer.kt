@@ -13,6 +13,7 @@ object Ansi {
     const val SAVE_CURSOR = "\u001b7"
     const val RESTORE_CURSOR = "\u001b8"
     const val CLEAR_LINE = "\u001b[K"
+    const val BRAND_BLUE = "\u001b[38;5;75m"
 
     fun moveTo(row: Int, col: Int): String = "\u001b[${row};${col}H"
 }
@@ -75,7 +76,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         // Visible character counts (no escape codes)
         val leftLen  = leftText.length          // 4
-        val midLen   = 5 + pkg.length           // " · " + pkg + " · " = 3+pkg+3 → simplified
         val rightLen = statusText.length + 1    // + trailing space
 
         buf.append(C_HEADER_BG)
