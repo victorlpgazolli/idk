@@ -13,6 +13,7 @@ object Ansi {
     const val SAVE_CURSOR = "\u001b7"
     const val RESTORE_CURSOR = "\u001b8"
     const val CLEAR_LINE = "\u001b[K"
+    const val BRAND_BLUE = "\u001b[38;5;75m"
 
     fun moveTo(row: Int, col: Int): String = "\u001b[${row};${col}H"
 }
@@ -23,6 +24,19 @@ object Renderer {
     private const val K_MAGENTA = "\u001b[38;2;195;69;204m"
     private const val K_PINK = "\u001b[38;2;227;68;156m"
 
+    // Design system — color language
+    private const val C_ORANGE   = "\u001b[38;5;208m"  // keywords / modifiers
+    private const val C_PURPLE   = "\u001b[38;5;176m"  // field / attribute (soft purple like AS)
+    private const val C_BLUE     = "\u001b[38;5;75m"   // object reference / IDK brand
+    private const val C_GREEN    = "\u001b[38;5;71m"   // active instance / live count
+    private const val C_DARK_GRAY = "\u001b[38;5;238m" // destroyed instances
+    private const val C_MID_GRAY  = "\u001b[38;5;244m" // secondary text
+    private const val C_SEP      = "\u001b[38;5;237m"  // separator lines
+
+    // Header background (simulated via bold separator)
+    private const val C_HEADER_BG = "\u001b[48;5;235m" // dark bg for header bar
+
+    // Keep existing (used elsewhere)
     private const val DIM_GRAY = "\u001b[90m"
     private const val WHITE = "\u001b[97m"
     private const val LIGHT_GRAY = "\u001b[38;5;250m"
@@ -32,14 +46,12 @@ object Renderer {
     private const val TYPE_STRING = "\u001b[38;5;173m"
     private const val TYPE_OTHER = "\u001b[38;5;43m"
     private const val RESET = "\u001b[0m"
-    
-    // Java Syntax Highlighting
-    private const val J_MODIFIER = "\u001b[38;5;208m" // Orange
-    private const val J_TYPE = "\u001b[38;5;114m"     // Greenish/Cyan
-    private const val J_PACKAGE = "\u001b[90m"        // Dim Gray
-    private const val J_CLASS = "\u001b[97m"          // White
-    private const val J_METHOD = "\u001b[38;5;220m"    // Yellow
-    private const val J_NUMBER = "\u001b[38;5;173m"    // Orange/Brown
+    private const val J_MODIFIER = "\u001b[38;5;208m"
+    private const val J_TYPE = "\u001b[38;5;114m"
+    private const val J_PACKAGE = "\u001b[90m"
+    private const val J_CLASS = "\u001b[97m"
+    private const val J_METHOD = "\u001b[38;5;222m"
+    private const val J_NUMBER = "\u001b[38;5;173m"
     
     private const val LOGO = """
 ${K_MAGENTA}      ▄▄▄▄▄  ${K_MAGENTA}▄▄▄▄▄▄▄▄▄    ${K_PINK}▄▄▄▄    ▄▄▄▄ $RESET
@@ -56,6 +68,98 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     Try typing 'debug' to start a new debug session.
     Press Ctrl+C to exit.
 """
+
+    private fun renderHeader(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val pkg = if (state.appPackageName.isNotEmpty()) state.appPackageName else "no package"
+        val statusText = "● connected"
+        val leftText = " IDK"
+
+        // Visible character counts (no escape codes)
+        val leftLen  = leftText.length          // 4
+        val rightLen = statusText.length + 1    // + trailing space
+
+        buf.append(C_HEADER_BG)
+        buf.append(C_BLUE).append(leftText).append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append("  ·  ").append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append(pkg).append(RESET).append(C_HEADER_BG)
+        buf.append(C_MID_GRAY).append("  ·  ").append(RESET).append(C_HEADER_BG)
+
+        // Pad to push status to the right
+        val visibleSoFar = leftLen + 5 + pkg.length + 5
+        val padding = maxOf(1, termWidth - visibleSoFar - rightLen)
+        buf.append(" ".repeat(padding))
+
+        buf.append(C_GREEN).append(statusText).append(RESET).append(C_HEADER_BG)
+        buf.append(" ")
+        buf.append(RESET).append("\n")
+
+        // Separator
+        buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+    }
+
+    private fun renderBreadcrumb(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val currentStage = when (state.mode) {
+            AppMode.DEBUG_CLASS_FILTER -> 0
+            AppMode.DEBUG_INSPECT_CLASS, AppMode.DEBUG_EDIT_ATTRIBUTE -> 1
+            AppMode.DEBUG_HOOK_WATCH -> 2
+            else -> -1
+        }
+
+        val stages = listOf("Classes", "Inspect", "Watch")
+        val sep = " › "
+
+        buf.append(" ")
+        stages.forEachIndexed { index, name ->
+            if (index > 0) buf.append(C_SEP).append(sep).append(RESET)
+            if (index == currentStage) {
+                buf.append(WHITE).append(name).append(RESET)
+            } else {
+                buf.append(DIM_GRAY).append(name).append(RESET)
+            }
+        }
+        buf.append("\n")
+        buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+    }
+
+    private fun renderClassPackageSubtitle(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val fullName = state.inspectTargetClassName
+        val lastDot  = fullName.lastIndexOf('.')
+        val pkg      = if (lastDot != -1) fullName.substring(0, lastDot) else ""
+        if (pkg.isNotEmpty()) {
+            buf.append(" ").append(DIM_GRAY).append(pkg).append(RESET).append("\n")
+            buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+        }
+    }
+
+    private fun extractParams(signature: String): String {
+        val open  = signature.indexOf('(')
+        val close = signature.lastIndexOf(')')
+        if (open == -1 || close <= open + 1) return ""
+        return signature.substring(open + 1, close)
+            .split(',')
+            .joinToString(", ") { it.trim().substringAfterLast('.') }
+    }
+
+    private fun ansiVisibleLength(text: String): Int {
+        var count = 0
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '\u001b') {
+                i++
+                if (i < text.length && text[i] == '[') {
+                    i++
+                    while (i < text.length && text[i] !in 'a'..'z' && text[i] !in 'A'..'Z') {
+                        i++
+                    }
+                    i++
+                }
+            } else {
+                count++
+                i++
+            }
+        }
+        return count
+    }
 
     fun render(state: AppState) {
         val (termWidth, termHeight) = Terminal.getSize()
@@ -75,20 +179,19 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderSuggestions(buf, state)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
-            renderLogo(buf)
-            renderWelcome(buf)
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
             renderClassFetchStatus(buf, state)
-            renderCtrlCWarning(buf, state)
-            renderInputBox(buf, state, width)
+            renderInputBox(buf, state, termWidth - 2)
             renderClassList(buf, state, termWidth, termHeight)
             buf.append(Ansi.RESTORE_CURSOR)
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS || state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
-            renderLogo(buf)
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
+            renderClassPackageSubtitle(buf, state, termWidth)
             renderCtrlCWarning(buf, state)
-            renderInspectHeader(buf, state, width)
-            buf.append("\n")
             if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
-                renderInputBox(buf, state, width)
+                renderInputBox(buf, state, termWidth - 2)
             }
             renderInspectClassList(buf, state, termWidth, termHeight)
             if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
@@ -100,6 +203,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
         } else if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+            renderHeader(buf, state, termWidth)
+            renderBreadcrumb(buf, state, termWidth)
             renderHookWatchMode(buf, state, termWidth, termHeight)
         }
 
@@ -112,21 +217,60 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderFooter(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
-        val footerText = when (state.mode) {
-            AppMode.DEFAULT -> " [↑/↓] History  [Tab] Autocomplete  [Enter] Execute  [Ctrl+C] Quit "
-            AppMode.DEBUG_ENTRYPOINT -> " [↑/↓] Navigate  [Enter] Select  [Ctrl+C] Quit "
-            AppMode.DEBUG_CLASS_FILTER -> " [↑/↓] Navigate  [Enter] Inspect  [\\] Count Instances  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_INSPECT_CLASS -> " [↑/↓] Navigate  [Enter] Expand/Collapse  [H] Hook  [E] Edit  [W] Watch Changes  [I] Inspect Class  [R] Refresh  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_HOOK_WATCH -> " [↑/↓] Navigate  [Enter] Toggle  [I] Inspect Class  [C] Clear Log  [Del] Remove Hook  [Esc] Back  [Ctrl+C] Quit "
-            AppMode.DEBUG_EDIT_ATTRIBUTE -> " [Type] New Value  [Enter] Save  [Esc] Cancel  [Ctrl+C] Quit "
+        data class FooterKey(val key: String, val label: String)
+
+        val keys: List<FooterKey> = when (state.mode) {
+            AppMode.DEFAULT -> listOf(
+                FooterKey("↑↓", "History"),
+                FooterKey("Tab", "Autocomplete"),
+                FooterKey("Enter", "Execute"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_ENTRYPOINT -> listOf(
+                FooterKey("↑↓", "Navigate"),
+                FooterKey("Enter", "Select"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_CLASS_FILTER -> listOf(
+                FooterKey("↑↓", "Navigate"),
+                FooterKey("Enter", "Inspect"),
+                FooterKey("\\", "Count"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_INSPECT_CLASS -> listOf(
+                FooterKey("H", "Hook"),
+                FooterKey("I", "Inspect child"),
+                FooterKey("W", "Watch"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_HOOK_WATCH -> listOf(
+                FooterKey("D", "Remove hook"),
+                FooterKey("C", "Clear log"),
+                FooterKey("Esc", "Back"),
+                FooterKey("Ctrl+C", "Quit")
+            )
+            AppMode.DEBUG_EDIT_ATTRIBUTE -> listOf(
+                FooterKey("Enter", "Save"),
+                FooterKey("Esc", "Cancel"),
+                FooterKey("Ctrl+C", "Quit")
+            )
         }
-        val padding = maxOf(0, termWidth - footerText.length)
-        
+
         buf.append(Ansi.moveTo(termHeight, 1))
-        buf.append("\u001b[7m") // Reverse Video
-        buf.append(footerText)
-        buf.append(" ".repeat(padding))
-        buf.append(Ansi.RESET)
+        buf.append(C_HEADER_BG)
+        buf.append(" ")
+        var visibleLen = 1
+        for (k in keys) {
+            // Colored key label + dim description
+            buf.append(WHITE).append(k.key).append(RESET).append(C_HEADER_BG)
+            buf.append(C_MID_GRAY).append(" ${k.label}").append(RESET).append(C_HEADER_BG)
+            buf.append("   ")
+            visibleLen += k.key.length + 1 + k.label.length + 3
+        }
+        buf.append(" ".repeat(maxOf(0, termWidth - visibleLen)))
+        buf.append(RESET)
     }
 
     private fun renderLogo(buf: StringBuilder) {
@@ -298,81 +442,74 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
     private fun renderClassList(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         if (state.rpcError != null) {
-            buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(Ansi.RESET).append("\n")
+            buf.append(Ansi.RED).append("  Error: ${state.rpcError}").append(RESET).append("\n")
             return
         }
 
         if (state.isFetchingClasses && state.displayedClasses.isEmpty()) {
-            buf.append(Ansi.DIM).append("  Fetching classes...").append(Ansi.RESET).append("\n")
-            return
+            return // spinner shown by renderClassFetchStatus above
         }
 
         if (state.displayedClasses.isEmpty() && state.inputBuffer.isNotEmpty() && !state.isFetchingClasses) {
-            val emptyBox = """
-                ${Ansi.DIM}╭─────────────────────────────╮${Ansi.RESET}
-                ${Ansi.DIM}│${Ansi.RESET}      No matches found       ${Ansi.DIM}│${Ansi.RESET}
-                ${Ansi.DIM}╰─────────────────────────────╯${Ansi.RESET}
-            """.trimIndent()
-            for (line in emptyBox.lines()) {
-                buf.append("   ").append(line).append("\n")
-            }
+            buf.append(DIM_GRAY).append("  No matches found.\n").append(RESET)
             return
         }
 
-        val fixedLines = 20 // +1 for footer
+        // Fixed lines: Header(2) + Breadcrumb(2) + Input(1) + ScrollIndicator(1) = 6
+        val fixedLines = 6
         val maxItems = maxOf(3, termHeight - fixedLines - 1)
-        val (startIdx, endIdx) = ListRenderer.computeViewport(state.displayedClasses.size, state.selectedClassIndex, maxItems)
-        
+
+        val (startIdx, endIdx) = ListRenderer.computeViewport(
+            state.displayedClasses.size, state.selectedClassIndex, maxItems
+        )
+
         for (i in startIdx until endIdx) {
-            val className = state.displayedClasses[i]
+            val className  = state.displayedClasses[i]
             val isSelected = i == state.selectedClassIndex
-            val prefix = ListRenderer.selectionPrefix(isSelected, "  ")
-            val suffix = Ansi.RESET
-            
-            val query = state.lastSearchedParam
-            
-            val lastDot = className.lastIndexOf('.')
-            val packagePart = if (lastDot != -1) className.substring(0, lastDot + 1) else ""
-            val namePart = if (lastDot != -1) className.substring(lastDot + 1) else className
-            
-            val packageBaseColor = if (isSelected) Ansi.GREEN else DIM_GRAY
-            val nameBaseColor = WHITE
-            
-            fun formatPart(text: String, baseColor: String): String {
-                if (query.isEmpty() || !text.contains(query, ignoreCase = true)) {
-                    return "$baseColor$text"
-                }
-                val sb = StringBuilder()
-                var currentPos = 0
-                val lowerText = text.lowercase()
-                val lowerQuery = query.lowercase()
-                
+            val prefix     = ListRenderer.selectionPrefix(isSelected, "  ")
+
+            val lastDot     = className.lastIndexOf('.')
+            val packagePart = if (lastDot != -1) className.substring(0, lastDot) else ""
+            val namePart    = if (lastDot != -1) className.substring(lastDot + 1) else className
+
+            val query           = state.lastSearchedParam
+            val nameBaseColor   = if (isSelected) WHITE else LIGHT_GRAY
+            val packageBaseColor = DIM_GRAY
+
+            fun highlight(text: String, baseColor: String): String {
+                if (query.isEmpty() || !text.contains(query, ignoreCase = true)) return "$baseColor$text"
+                val sb  = StringBuilder()
+                var pos = 0
+                val lo  = text.lowercase()
+                val lq  = query.lowercase()
                 while (true) {
-                    val start = lowerText.indexOf(lowerQuery, currentPos)
-                    if (start == -1) {
-                        sb.append(baseColor).append(text.substring(currentPos))
-                        break
-                    }
-                    sb.append(baseColor).append(text.substring(currentPos, start))
-                    sb.append(Ansi.YELLOW).append(text.substring(start, start + query.length))
-                    currentPos = start + query.length
+                    val start = lo.indexOf(lq, pos)
+                    if (start == -1) { sb.append(baseColor).append(text.substring(pos)); break }
+                    sb.append(baseColor).append(text.substring(pos, start))
+                    sb.append("\u001b[38;5;220m").append(text.substring(start, start + query.length)) // yellow highlight
+                    pos = start + query.length
                 }
                 return sb.toString()
             }
-            
-            var formattedName = formatPart(packagePart, packageBaseColor) + formatPart(namePart, nameBaseColor)
-            
+
+            // Count badge
             val count = state.instanceCounts[className]
-            if (count != null) {
-                formattedName += " ${Ansi.WHITE}[$count]${Ansi.RESET}"
+            val countBadge = when {
+                count == null -> ""
+                count > 0     -> "  ${C_GREEN}$count inst${RESET}"
+                else          -> "  ${DIM_GRAY}0 inst${RESET}"
             }
-            
+
+            // Row: Name (package ...)
             buf.append(prefix)
-            buf.append(formattedName)
-            buf.append(suffix)
-            buf.append("\n")
+            buf.append(highlight(namePart, nameBaseColor))
+            if (packagePart.isNotEmpty()) {
+                buf.append(" ").append(DIM_GRAY).append("(").append(highlight(packagePart, packageBaseColor)).append(")").append(RESET)
+            }
+            buf.append(countBadge)
+            buf.append(RESET).append("\n")
         }
-        
+
         ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, state.displayedClasses.size, termWidth)
     }
 
@@ -392,7 +529,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         buf.append(Ansi.DIM).append(" ").append(topBorder).append(Ansi.RESET).append("\n")
         buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
-        buf.append(K_VIOLET).append(title).append(Ansi.RESET)
+        buf.append(WHITE).append(title).append(Ansi.RESET)
         buf.append(" ".repeat(padding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
         
         val methodCount = state.activeHooks.count { it.type == HookType.METHOD }
@@ -412,9 +549,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         
         buf.append(Ansi.DIM).append(" │").append(Ansi.RESET)
         buf.append(Ansi.WHITE).append(hooksPrefix).append(Ansi.RESET)
-        buf.append(Ansi.YELLOW).append(methodStr).append(Ansi.RESET)
+        buf.append(J_METHOD).append(methodStr).append(Ansi.RESET)
         buf.append(Ansi.WHITE).append(separator).append(Ansi.RESET)
-        buf.append(Ansi.BLUE).append(fieldStr).append(Ansi.RESET)
+        buf.append(C_PURPLE).append(fieldStr).append(Ansi.RESET)
         buf.append(Ansi.WHITE).append(hooksSuffix).append(Ansi.RESET)
         buf.append(" ".repeat(hooksPadding)).append(Ansi.DIM).append("│").append(Ansi.RESET).append("\n")
 
@@ -445,7 +582,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 21 else 18 
+        // Fixed lines: Header(2) + Breadcrumb(2) + Subtitle(2) + Warning(1) + ScrollIndicator(1) + Footer(1) = 9
+        // If editing: + InputBox(3) = 12
+        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 12 else 9
         val maxItems = maxOf(3, termHeight - fixedLines)
         val (startIdx, endIdx) = ListRenderer.computeViewport(rows.size, state.selectedClassIndex, maxItems)
 
@@ -489,79 +628,135 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 else -> ""
             }
             val prefix = "$baseIndentStr$selectionMarker"
+            val prefixVisible = ansiVisibleLength(prefix)
             
             when (row) {
                 is InspectRow.SectionStaticRow -> {
-                    val actionText = if (row.isExpanded) "Collapse static attributes and methods" else "Expand static attributes and methods"
-                    buf.append(prefix).append(K_PURPLE).append("1. ").append(actionText).append(Ansi.RESET).append("\n")
+                    val arrow  = if (row.isExpanded) "▾" else "▸"
+                    val detail = if (row.isExpanded) "" else "  ${DIM_GRAY}(press Enter to expand)${RESET}"
+                    buf.append(prefix)
+                        .append(C_MID_GRAY).append("$arrow Static members").append(RESET)
+                        .append(detail).append(RESET).append("\n")
                 }
                 is InspectRow.SectionInstancesRow -> {
-                    val countInfo = if (state.inspectInstancesList != null) " (${state.inspectInstancesTotalCount})" else ""
-                    val actionText = "Found instances$countInfo"
-                    buf.append(prefix).append(K_PURPLE).append("2. ").append(actionText).append(Ansi.RESET).append("\n")
+                    val arrow     = if (row.isExpanded) "▾" else "▸"
+                    val countInfo = state.inspectInstancesList?.let { " ${C_GREEN}${state.inspectInstancesTotalCount} found${RESET}" } ?: ""
+                    buf.append(prefix)
+                        .append(C_MID_GRAY).append("$arrow Instances").append(RESET)
+                        .append(countInfo).append(RESET).append("\n")
                 }
                 is InspectRow.StaticAttributeRow -> {
-                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.attribute }
-                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
-                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
+                    val memberName = extractMemberName(row.attribute)
+                    val isHooked   = state.activeHooks.any {
+                        it.className == state.inspectTargetClassName && it.memberSignature == row.attribute
+                    }
+                    val nameStr    = "${C_PURPLE}$memberName${RESET}"
+                    val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
+
+                    // Right-align the H hint: compute visible length
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val pad = maxOf(1, termWidth - prefixVisible - 2 - memberName.length - hintLen)
+
+                    buf.append(prefix).append("  ")
+                        .append(nameStr)
+                        .append(" ".repeat(pad))
+                        .append(hookedStr).append(RESET).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
-                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.method }
-                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
-                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
+                    val memberName = extractMemberName(row.method)
+                    val params     = extractParams(row.method)
+                    val isHooked   = state.activeHooks.any {
+                        it.className == state.inspectTargetClassName && it.memberSignature == row.method
+                    }
+                    val nameStr    = "${J_METHOD}$memberName${RESET}"
+                    val paramsStr  = "${LIGHT_GRAY}($params)${RESET}"
+                    val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
+
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val visibleLen = memberName.length + 2 + params.length  // name + "(" + params + ")"
+                    val pad = maxOf(1, termWidth - prefixVisible - 2 - visibleLen - hintLen)
+
+                    buf.append(prefix).append("  ")
+                        .append(nameStr).append(paramsStr)
+                        .append(" ".repeat(pad))
+                        .append(hookedStr).append(RESET).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
-                    val treeLine = if (row.isLast) "└── " else "├── "
-                    val summaryMax = maxOf(10, termWidth - visualIndent - 25)
-                    val summary = if (row.instance.summary.length > summaryMax) {
-                        row.instance.summary.take(summaryMax - 3) + "..."
+                    // Detect destroyed state from summary heuristic
+                    val isDestroyed = row.instance.summary.contains("destroyed", ignoreCase = true)
+                        || row.instance.summary.contains("isDestroyed=true", ignoreCase = true)
+
+                    val treeLine   = if (row.isLast) "└ " else "├ "
+                    val idxLabel   = "inst#${row.instance.id.takeLast(4)}"
+                    val hashLabel  = "@${row.instance.handle.take(8)}"
+                    if (isDestroyed) {
+                        buf.append(prefix)
+                            .append(C_DARK_GRAY).append(treeLine).append(idxLabel)
+                            .append(" · ").append(hashLabel)
+                            .append(" · destroyed").append(RESET).append("\n")
                     } else {
-                        row.instance.summary
+                        buf.append(prefix)
+                            .append(DIM_GRAY).append(treeLine).append(RESET)
+                            .append(WHITE).append(idxLabel).append(RESET)
+                            .append(DIM_GRAY).append(" · ").append(RESET)
+                            .append(DIM_GRAY).append(hashLabel).append(RESET)
+                            .append(DIM_GRAY).append(" · ").append(RESET)
+                            .append(C_GREEN).append("active").append(RESET).append("\n")
                     }
-                    buf.append(prefix).append(Ansi.DIM).append(treeLine).append(Ansi.RESET)
-                        .append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(summary).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceAttributeRow -> {
                     if (row.attribute.isPagination) {
-                        buf.append(prefix).append(Ansi.YELLOW).append("... ").append(row.attribute.value).append(Ansi.RESET).append("\n")
+                        buf.append(prefix).append(DIM_GRAY).append("··· ").append(row.attribute.value).append(RESET).append("\n")
                     } else {
-                        val typeStr = "(${row.attribute.type})"
-                        val typeColor = when (row.attribute.type.lowercase()) {
-                            "boolean", "bool" -> TYPE_BOOLEAN
-                            "int", "long", "float", "double", "short", "byte" -> TYPE_NUMBER
-                            "string", "char", "charsequence" -> TYPE_STRING
-                            else -> TYPE_OTHER
-                        }
-                        val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
+                        val attrName = row.attribute.name
+                        val attrType = row.attribute.type
+                        val attrVal  = row.attribute.value
+
+                        val isObjectRef = row.attribute.childId != null
                         
-                        val valueMax = maxOf(10, termWidth - visualIndent - row.attribute.name.length - typeStr.length - 10)
-                        val displayValue = if (row.attribute.value.length > valueMax) {
-                            row.attribute.value.take(valueMax - 3) + "..."
+                        // Calculate space for value
+                        val labelLen = if (isObjectRef) {
+                            attrName.length + 3 + attrType.length + 6 // "name (Type)  → I"
                         } else {
-                            row.attribute.value
+                            attrName.length + 2 // "name: "
                         }
+                        val maxValLen = maxOf(10, termWidth - prefixVisible - labelLen - 5)
+                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxValLen - 3) + "..." else attrVal
 
                         buf.append(prefix)
-                        buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
-                        buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
-                        buf.append(" : ")
-                        if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
-                            buf.append(valColor).append("\"").append(displayValue).append("\"").append(Ansi.RESET)
+                        if (isObjectRef) {
+                            // Object reference: purple name + (Type) in dim gray + value preview
+                            buf.append(C_PURPLE).append(attrName).append(RESET)
+                            buf.append(" ").append(DIM_GRAY).append("(").append(attrType).append(")").append(RESET)
+                            buf.append(DIM_GRAY).append(": ").append(RESET)
+                            buf.append(C_MID_GRAY).append(displayVal).append(RESET)
+                            buf.append(C_ORANGE).append("  → I").append(RESET)
                         } else {
-                            buf.append(valColor).append(displayValue).append(Ansi.RESET)
+                            // Primitive / string
+                            val valColor = when (attrType.lowercase()) {
+                                "boolean", "bool"                                    -> TYPE_BOOLEAN
+                                "int", "long", "float", "double", "short", "byte"   -> TYPE_NUMBER
+                                "string", "char", "charsequence"                    -> TYPE_STRING
+                                else                                                 -> TYPE_OTHER
+                            }
+                            val valDisplay = if (attrType.lowercase() == "string" && attrVal != "null") "\"$displayVal\"" else displayVal
+                            val valColorFinal = if (attrVal == "null") Ansi.RED else valColor
+
+                            buf.append(C_PURPLE).append(attrName).append(RESET)
+                            buf.append(DIM_GRAY).append(": ").append(RESET)
+                            buf.append(valColorFinal).append(valDisplay).append(RESET)
                         }
-                        buf.append("\n")
+                        buf.append(RESET).append("\n")
                     }
                 }
                 is InspectRow.InfoRow -> {
-                    val color = if (row.isError) Ansi.RED else if (row.isDim) Ansi.DIM else Ansi.RESET
-                    val text = if (row.text.contains("loading", ignoreCase = true)) {
-                        val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
-                        "$frame ${row.text}"
+                    val color = if (row.isError) Ansi.RED else if (row.isDim) DIM_GRAY else RESET
+                    val text  = if (row.text.contains("loading", ignoreCase = true)) {
+                        "${ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)} ${row.text}"
                     } else {
                         row.text
                     }
-                    buf.append(prefix).append(color).append(text).append(Ansi.RESET).append("\n")
+                    buf.append(prefix).append(color).append(text).append(RESET).append("\n")
                 }
             }
         }
@@ -579,79 +774,64 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     }
 
     private fun renderHookWatchMode(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
-        val leftWidth = (termWidth * 0.4).toInt()
-        val rightWidth = termWidth - leftWidth - 1
-        val contentHeight = termHeight - 2 // Footer and one line for header
+        // Header and breadcrumb are rendered by render() before this call.
+        // Available height: total height minus header(2) + breadcrumb(2) + footer(1) = 5 lines overhead.
+        val contentHeight = termHeight - 5
 
-        // Header
-        val leftTitle = " Monitored Items ".padStart((leftWidth + 17) / 2).padEnd(leftWidth)
-        val rightTitle = " Live Event Log ".padStart((rightWidth + 16) / 2).padEnd(rightWidth)
-        buf.append("\u001b[7m").append(leftTitle).append(Ansi.RESET)
-        buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
-        buf.append("\u001b[7m").append(rightTitle).append(Ansi.RESET).append("\n")
+        val leftWidth  = (termWidth * 0.22).toInt().coerceAtLeast(12)
+        val rightWidth = termWidth - leftWidth - 1  // 1 for separator
+
+        // ── Column headers ──────────────────────────────────────────────────────
+        val leftHeader  = " HOOKED"
+        val rightHeader = " EVENT LOG"
+        buf.append(C_MID_GRAY)
+        buf.append(leftHeader.padEnd(leftWidth))
+        buf.append("│")
+        buf.append(rightHeader)
+        buf.append(RESET).append("\n")
+        buf.append(C_SEP)
+        buf.append("─".repeat(leftWidth)).append("┼").append("─".repeat(rightWidth))
+        buf.append(RESET).append("\n")
+
+        val availableHeight = contentHeight - 2  // subtract column header rows
+
+        // ── Build event log lines ────────────────────────────────────────────────
+        // Events are displayed newest-first (bottom of list = oldest).
+        val eventLines = mutableListOf<String>()
+        for (event in state.hookEvents.asReversed()) {
+            eventLines.addAll(formatEventBlock(event, rightWidth - 2))
+        }
+        // Apply scroll offset
+        val logStart  = state.hookLogScrollOffset.coerceIn(0, maxOf(0, eventLines.size - availableHeight))
+        val logSlice  = eventLines.drop(logStart).take(availableHeight)
 
         val activeHooksList = state.activeHooks.toList()
-        
-        for (y in 0 until contentHeight) {
-            // Left Panel: Monitored Items
+
+        // ── Render rows ──────────────────────────────────────────────────────────
+        for (y in 0 until availableHeight) {
+            // Left: HOOKED list
             if (y < activeHooksList.size) {
-                val hook = activeHooksList[y]
+                val hook       = activeHooksList[y]
                 val isSelected = y == state.selectedHookIndex
-                val selectionMarker = ListRenderer.selectionPrefix(isSelected, "")
-                val check = if (hook.enabled) "[✓]" else "[ ]"
-                val color = if (hook.type == HookType.METHOD) Ansi.YELLOW else Ansi.BLUE
-                
-                val displayName = extractMemberName(hook.memberSignature)
-                var lineText = "$selectionMarker$check $color$displayName${Ansi.RESET}"
-                val visibleLen = 2 + check.length + 1 + displayName.length
-                if (visibleLen > leftWidth) {
-                    buf.append(lineText.take(leftWidth - 3 + (lineText.length - visibleLen))).append("...")
-                } else {
-                    buf.append(lineText).append(" ".repeat(leftWidth - visibleLen))
-                }
+                val selMark    = if (isSelected) "› " else "  "
+                val color      = if (hook.type == HookType.METHOD) J_METHOD else C_PURPLE
+                val name       = extractMemberName(hook.memberSignature)
+                val selColor   = if (isSelected) WHITE else DIM_GRAY
+
+                val cell = "$selColor$selMark$color$name$RESET"
+                val visLen = 2 + name.length
+                buf.append(cell)
+                buf.append(" ".repeat(maxOf(0, leftWidth - visLen)))
             } else {
                 buf.append(" ".repeat(leftWidth))
             }
 
-            buf.append(Ansi.DIM).append("│").append(Ansi.RESET)
+            buf.append(C_SEP).append("│").append(RESET)
 
-            // Right Panel: Live Event Log
-            val logIndex = state.hookEvents.size - 1 - y - state.hookLogScrollOffset
-            if (logIndex >= 0 && logIndex < state.hookEvents.size) {
-                val event = state.hookEvents[logIndex]
-                val time = formatTime(event.timestamp)
-                val typeLabel = if (event.target.type == HookType.METHOD) "CALL" else "CHANGE"
-                val countStr = if (event.count > 1) " (x${event.count})" else ""
-                
-                var content = when (event.target.type) {
-                    HookType.METHOD -> {
-                        val args = event.data["args"] ?: ""
-                        val ret = event.data["return"] ?: ""
-                        val name = extractMemberName(event.target.memberSignature)
-                        "$typeLabel $name($args) -> $ret"
-                    }
-                    HookType.FIELD -> {
-                        val value = event.data["value"] ?: ""
-                        val name = extractMemberName(event.target.memberSignature)
-                        "$typeLabel $name: $value"
-                    }
-                }
-                
-                val maxContentLen = rightWidth - 11 - countStr.length
-                if (content.length > maxContentLen) {
-                    content = content.take(maxContentLen - 3) + "..."
-                }
-                
-                val logLine = "${Ansi.DIM}[$time]${Ansi.RESET} $content${Ansi.YELLOW}$countStr${Ansi.RESET}"
-                val visibleLogLen = 11 + content.length + countStr.length
-                
-                buf.append(logLine)
-                if (visibleLogLen < rightWidth) {
-                    buf.append(" ".repeat(rightWidth - visibleLogLen))
-                }
-            } else {
-                buf.append(" ".repeat(rightWidth))
-            }
+            // Right: event log
+            val line = logSlice.getOrNull(y) ?: ""
+            buf.append(line)
+            // No need to pad — newline follows
             buf.append("\n")
         }
     }
@@ -663,6 +843,131 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val minutes = (timestamp / (1000 * 60)) % 60
         val hours = (timestamp / (1000 * 60 * 60) + 24 - 3) % 24 // Quick hack for UTC-3, or just keep it simple
         return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    }
+
+    /**
+     * Formats a hook event into a list of display lines (no ANSI in length calculations).
+     * Each element is a Pair<String, Int> = (ansi-formatted line, visible character count).
+     */
+    private fun formatEventBlock(event: HookEvent, maxWidth: Int): List<String> {
+        val lines = mutableListOf<String>()
+
+        val time       = formatTime(event.timestamp)
+        val memberName = extractMemberName(event.target.memberSignature)
+        val instanceId = event.data["instanceId"] ?: event.data["handle"] ?: ""
+        val hashSuffix = if (instanceId.isNotEmpty()) "  ${DIM_GRAY}@${instanceId.take(7)}${RESET}" else ""
+        val countSuffix = if (event.count > 1) " ${DIM_GRAY}×${event.count}${RESET}" else ""
+
+        when (event.target.type) {
+            HookType.FIELD -> {
+                val value = event.data["value"] ?: ""
+                val badgeColor = C_PURPLE
+                val badge = "${badgeColor}FIELD${RESET}"
+                val header = "${DIM_GRAY}$time${RESET}  $badge  ${WHITE}$memberName${RESET}$hashSuffix$countSuffix"
+                lines.add(header)
+
+                // old → new from value string (bridge may send "old|new" or just new)
+                val parts = value.split("|")
+                if (parts.size == 2) {
+                    lines.add("  ${Ansi.RED}${parts[0].trim()}${RESET}  ${DIM_GRAY}→${RESET}  ${C_GREEN}${parts[1].trim()}${RESET}")
+                } else {
+                    lines.add("  ${C_GREEN}$value${RESET}")
+                }
+            }
+            HookType.METHOD -> {
+                val args   = event.data["args"] ?: ""
+                val ret    = event.data["return"] ?: "void"
+                val badgeColor = J_METHOD
+                val badge = "${badgeColor}METHOD${RESET}"
+                val header = "${DIM_GRAY}$time${RESET}  $badge  ${WHITE}$memberName${RESET}$hashSuffix$countSuffix"
+                lines.add(header)
+
+                // Args
+                if (args.isNotEmpty()) {
+                    lines.add("  ${DIM_GRAY}args:${RESET}")
+                    val argList = args.split(",").map { it.trim() }
+                    argList.forEach { arg ->
+                        val truncated = if (arg.length > maxWidth - 6) arg.take(maxWidth - 9) + "..." else arg
+                        lines.add("    ${C_MID_GRAY}$truncated${RESET}")
+                    }
+                }
+
+                // Return value
+                lines.add("  ${DIM_GRAY}returned:${RESET}")
+                val retLines = formatValue(ret, 4, maxWidth)
+                lines.addAll(retLines)
+            }
+        }
+
+        lines.add("") // blank separator between events
+        return lines
+    }
+
+    /**
+     * Formats a value string with indentation. Detects ClassName{k=v, ...} patterns
+     * and renders them with one field per line. Nested objects beyond depth 1 collapse
+     * as `{ ··· }`.
+     */
+    private fun formatValue(value: String, indent: Int, maxWidth: Int): List<String> {
+        val pad = " ".repeat(indent)
+
+        // Detect object toString pattern: SomeClass{field=val, ...}  or  SomeClass{...}
+        val objectPattern = Regex("""^(\w[\w.${'$'}]*)\{(.*)\}$""", RegexOption.DOT_MATCHES_ALL)
+        val match = objectPattern.matchEntire(value.trim())
+
+        if (match != null) {
+            val className = match.groupValues[1]
+            val body      = match.groupValues[2]
+            val lines     = mutableListOf<String>()
+            lines.add("$pad${C_BLUE}$className${RESET}${DIM_GRAY} {${RESET}")
+
+            // Split fields by ", " but be careful with nested braces
+            val fields = splitTopLevelCommas(body)
+            fields.forEach { field ->
+                val eqIdx = field.indexOf('=')
+                if (eqIdx != -1) {
+                    val k = field.substring(0, eqIdx).trim()
+                    val v = field.substring(eqIdx + 1).trim()
+                    // Collapse any nested objects
+                    val vDisplay = if (v.contains('{')) "${v.substringBefore('{').trim()}${DIM_GRAY} { ··· }${RESET}" else v
+                    val truncated = if (vDisplay.length > maxWidth - indent - k.length - 4) vDisplay.take(maxWidth - indent - k.length - 7) + "..." else vDisplay
+                    lines.add("$pad  ${C_PURPLE}$k${RESET}${DIM_GRAY}: ${RESET}$truncated")
+                    } else {
+
+                    lines.add("$pad  ${C_MID_GRAY}${field.take(maxWidth - indent - 2)}${RESET}")
+                }
+            }
+            lines.add("$pad${DIM_GRAY}}${RESET}")
+            return lines
+        }
+
+        // Primitive / string
+        val truncated = if (value.length > maxWidth - indent) value.take(maxWidth - indent - 3) + "..." else value
+        return listOf("$pad${C_MID_GRAY}$truncated${RESET}")
+    }
+
+    /**
+     * Splits a comma-separated string while ignoring commas inside braces/brackets.
+     */
+    private fun splitTopLevelCommas(s: String): List<String> {
+        val result  = mutableListOf<String>()
+        var depth   = 0
+        val current = StringBuilder()
+        for (ch in s) {
+            when (ch) {
+                '{', '[', '(' -> { depth++; current.append(ch) }
+                '}', ']', ')' -> { depth--; current.append(ch) }
+                ',' -> if (depth == 0) {
+                    result.add(current.toString().trim())
+                    current.clear()
+                } else {
+                    current.append(ch)
+                }
+                else -> current.append(ch)
+            }
+        }
+        if (current.isNotBlank()) result.add(current.toString().trim())
+        return result
     }
 
     private fun highlightJavaSignature(signature: String): String {
