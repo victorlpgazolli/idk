@@ -743,18 +743,23 @@ def runtime_load_payload(jdwp, threadId, runtimeClassId, getRuntimeMethId, libra
     print("[+] Runtime.load(%s) probably successful" % library)
 
     return True
-def _is_gadget_running(pid):
+def _is_gadget_running(serial=None):
+    adb_cmd = ["adb"]
+    if serial:
+        adb_cmd.extend(["-s", serial])
+    adb_cmd.extend(["shell", "ss 2>/dev/null | grep '127.0.0.1:27042'"])
+    
     result = subprocess.run(
-        ["adb", "shell", f"ss 2>/dev/null | grep '127.0.0.1:27042'"],
+        adb_cmd,
         capture_output=True, text=True
     )
     return "127.0.0.1:27042" in result.stdout
-def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.dispatchMessage", package_name=None):
+def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.dispatchMessage", package_name=None, serial=None):
     classname, meth = str2fqclass(break_on)
 
     class Args:
         pass
-    if _is_gadget_running(None):
+    if _is_gadget_running(serial=serial):
                 print("[*] Detected Frida gadget running on device, will attempt to use it for library injection")
                 return {"status": "gadget_detected"}
 
