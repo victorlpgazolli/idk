@@ -140,6 +140,27 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             .joinToString(", ") { it.trim().substringAfterLast('.') }
     }
 
+    private fun ansiVisibleLength(text: String): Int {
+        var count = 0
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '\u001b') {
+                i++
+                if (i < text.length && text[i] == '[') {
+                    i++
+                    while (i < text.length && text[i] !in 'a'..'z' && text[i] !in 'A'..'Z') {
+                        i++
+                    }
+                    i++
+                }
+            } else {
+                count++
+                i++
+            }
+        }
+        return count
+    }
+
     fun render(state: AppState) {
         val (termWidth, termHeight) = Terminal.getSize()
         val width = if (termWidth > 4) termWidth - 2 else 70
@@ -566,7 +587,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 13 else 10
+        // Fixed lines: Header(2) + Breadcrumb(2) + Subtitle(2) + Warning(1) + ScrollIndicator(1) + Footer(1) = 9
+        // If editing: + InputBox(3) = 12
+        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 12 else 9
         val maxItems = maxOf(3, termHeight - fixedLines)
         val (startIdx, endIdx) = ListRenderer.computeViewport(rows.size, state.selectedClassIndex, maxItems)
 
@@ -610,6 +633,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 else -> ""
             }
             val prefix = "$baseIndentStr$selectionMarker"
+            val prefixVisible = ansiVisibleLength(prefix)
             
             when (row) {
                 is InspectRow.SectionStaticRow -> {
@@ -617,14 +641,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val detail = if (row.isExpanded) "" else "  ${DIM_GRAY}(press Enter to expand)${RESET}"
                     buf.append(prefix)
                         .append(C_MID_GRAY).append("$arrow Static members").append(RESET)
-                        .append(detail).append("\n")
+                        .append(detail).append(RESET).append("\n")
                 }
                 is InspectRow.SectionInstancesRow -> {
                     val arrow     = if (row.isExpanded) "▾" else "▸"
                     val countInfo = state.inspectInstancesList?.let { " ${C_GREEN}${state.inspectInstancesTotalCount} found${RESET}" } ?: ""
                     buf.append(prefix)
                         .append(C_MID_GRAY).append("$arrow Instances").append(RESET)
-                        .append(countInfo).append("\n")
+                        .append(countInfo).append(RESET).append("\n")
                 }
                 is InspectRow.StaticAttributeRow -> {
                     val memberName = extractMemberName(row.attribute)
@@ -635,14 +659,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
                     // Right-align the H hint: compute visible length
-                    val prefixVisible = 10  // 4 indent + 4 selection marker + 2 extra spaces
                     val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
-                    val pad = maxOf(1, termWidth - prefixVisible - memberName.length - hintLen)
+                    val pad = maxOf(1, termWidth - prefixVisible - 2 - memberName.length - hintLen)
 
                     buf.append(prefix).append("  ")
                         .append(nameStr)
                         .append(" ".repeat(pad))
-                        .append(hookedStr).append("\n")
+                        .append(hookedStr).append(RESET).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
                     val memberName = extractMemberName(row.method)
@@ -654,15 +677,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val paramsStr  = "${DIM_GRAY}($params)${RESET}"
                     val hookedStr  = if (isHooked) " ${C_PURPLE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
-                    val prefixVisible = 10  // 4 indent + 4 selection marker + 2 extra spaces
                     val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
                     val visibleLen = memberName.length + 2 + params.length  // name + "(" + params + ")"
-                    val pad = maxOf(1, termWidth - prefixVisible - visibleLen - hintLen)
+                    val pad = maxOf(1, termWidth - prefixVisible - 2 - visibleLen - hintLen)
 
                     buf.append(prefix).append("  ")
                         .append(nameStr).append(paramsStr)
                         .append(" ".repeat(pad))
-                        .append(hookedStr).append("\n")
+                        .append(hookedStr).append(RESET).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
                     // Detect destroyed state from summary heuristic
@@ -723,7 +745,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                             buf.append(DIM_GRAY).append(": ").append(RESET)
                             buf.append(valColorFinal).append(valDisplay).append(RESET)
                         }
-                        buf.append("\n")
+                        buf.append(RESET).append("\n")
                     }
                 }
                 is InspectRow.InfoRow -> {
