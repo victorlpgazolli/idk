@@ -121,6 +121,25 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
     }
 
+    private fun renderClassPackageSubtitle(buf: StringBuilder, state: AppState, termWidth: Int) {
+        val fullName = state.inspectTargetClassName
+        val lastDot  = fullName.lastIndexOf('.')
+        val pkg      = if (lastDot != -1) fullName.substring(0, lastDot) else ""
+        if (pkg.isNotEmpty()) {
+            buf.append(" ").append(DIM_GRAY).append(pkg).append(RESET).append("\n")
+            buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+        }
+    }
+
+    private fun extractParams(signature: String): String {
+        val open  = signature.indexOf('(')
+        val close = signature.lastIndexOf(')')
+        if (open == -1 || close <= open + 1) return ""
+        return signature.substring(open + 1, close)
+            .split(',')
+            .joinToString(", ") { it.trim().substringAfterLast('.') }
+    }
+
     fun render(state: AppState) {
         val (termWidth, termHeight) = Terminal.getSize()
         val width = if (termWidth > 4) termWidth - 2 else 70
@@ -148,6 +167,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS || state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
             renderHeader(buf, state, termWidth)
             renderBreadcrumb(buf, state, termWidth)
+            renderClassPackageSubtitle(buf, state, termWidth)
             renderCtrlCWarning(buf, state)
             if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
                 renderInputBox(buf, state, termWidth - 2)
@@ -546,7 +566,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 21 else 18 
+        val fixedLines = if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) 13 else 10
         val maxItems = maxOf(3, termHeight - fixedLines)
         val (startIdx, endIdx) = ListRenderer.computeViewport(rows.size, state.selectedClassIndex, maxItems)
 
@@ -593,76 +613,125 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             
             when (row) {
                 is InspectRow.SectionStaticRow -> {
-                    val actionText = if (row.isExpanded) "Collapse static attributes and methods" else "Expand static attributes and methods"
-                    buf.append(prefix).append(K_PURPLE).append("1. ").append(actionText).append(Ansi.RESET).append("\n")
+                    val arrow  = if (row.isExpanded) "▾" else "▸"
+                    val detail = if (row.isExpanded) "" else "  ${DIM_GRAY}(press Enter to expand)${RESET}"
+                    buf.append(prefix)
+                        .append(C_MID_GRAY).append("$arrow Static members").append(RESET)
+                        .append(detail).append("\n")
                 }
                 is InspectRow.SectionInstancesRow -> {
-                    val countInfo = if (state.inspectInstancesList != null) " (${state.inspectInstancesTotalCount})" else ""
-                    val actionText = "Found instances$countInfo"
-                    buf.append(prefix).append(K_PURPLE).append("2. ").append(actionText).append(Ansi.RESET).append("\n")
+                    val arrow     = if (row.isExpanded) "▾" else "▸"
+                    val countInfo = state.inspectInstancesList?.let { " ${C_GREEN}${state.inspectInstancesTotalCount} found${RESET}" } ?: ""
+                    buf.append(prefix)
+                        .append(C_MID_GRAY).append("$arrow Instances").append(RESET)
+                        .append(countInfo).append("\n")
                 }
                 is InspectRow.StaticAttributeRow -> {
-                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.attribute }
-                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
-                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.attribute)).append(Ansi.RESET).append("\n")
+                    val memberName = extractMemberName(row.attribute)
+                    val isHooked   = state.activeHooks.any {
+                        it.className == state.inspectTargetClassName && it.memberSignature == row.attribute
+                    }
+                    val nameStr    = "${C_ORANGE}$memberName${RESET}"
+                    val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
+
+                    // Right-align the H hint: compute visible length
+                    val pad = maxOf(1, termWidth - prefix.length.coerceAtMost(4) - memberName.length - 5)
+
+                    buf.append(prefix).append("  ")
+                        .append(nameStr)
+                        .append(" ".repeat(pad))
+                        .append(hookedStr).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
-                    val isHooked = state.activeHooks.any { it.className == state.inspectTargetClassName && it.memberSignature == row.method }
-                    val hookMarker = if (isHooked) "${Ansi.YELLOW}[H] ${Ansi.RESET}" else ""
-                    buf.append(prefix).append("    ").append(hookMarker).append(highlightJavaSignature(row.method)).append(Ansi.RESET).append("\n")
+                    val memberName = extractMemberName(row.method)
+                    val params     = extractParams(row.method)
+                    val isHooked   = state.activeHooks.any {
+                        it.className == state.inspectTargetClassName && it.memberSignature == row.method
+                    }
+                    val nameStr    = "${C_PURPLE}$memberName${RESET}"
+                    val paramsStr  = "${DIM_GRAY}($params)${RESET}"
+                    val hookedStr  = if (isHooked) " ${C_PURPLE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
+
+                    val visibleLen = memberName.length + 2 + params.length + 3
+                    val pad = maxOf(1, termWidth - 6 - visibleLen)
+
+                    buf.append(prefix).append("  ")
+                        .append(nameStr).append(paramsStr)
+                        .append(" ".repeat(pad))
+                        .append(hookedStr).append("\n")
                 }
                 is InspectRow.InstanceRow -> {
-                    val treeLine = if (row.isLast) "└── " else "├── "
-                    val summaryMax = maxOf(10, termWidth - visualIndent - 25)
-                    val summary = if (row.instance.summary.length > summaryMax) {
-                        row.instance.summary.take(summaryMax - 3) + "..."
+                    // Detect destroyed state from summary heuristic
+                    val isDestroyed = row.instance.summary.contains("destroyed", ignoreCase = true)
+                        || row.instance.summary.contains("isDestroyed=true", ignoreCase = true)
+
+                    val treeLine   = if (row.isLast) "└ " else "├ "
+                    val idxLabel   = "inst#${row.instance.id.takeLast(4)}"
+                    val hashLabel  = "@${row.instance.handle.take(8)}"
+                    val statusStr  = if (isDestroyed) "${C_DARK_GRAY}destroyed${RESET}" else "${C_GREEN}active${RESET}"
+
+                    if (isDestroyed) {
+                        buf.append(prefix)
+                            .append(C_DARK_GRAY).append(treeLine).append(idxLabel)
+                            .append(" · ").append(hashLabel)
+                            .append(" · destroyed").append(RESET).append("\n")
                     } else {
-                        row.instance.summary
+                        buf.append(prefix)
+                            .append(DIM_GRAY).append(treeLine).append(RESET)
+                            .append(WHITE).append(idxLabel).append(RESET)
+                            .append(DIM_GRAY).append(" · ").append(RESET)
+                            .append(DIM_GRAY).append(hashLabel).append(RESET)
+                            .append(DIM_GRAY).append(" · ").append(RESET)
+                            .append(statusStr).append("\n")
                     }
-                    buf.append(prefix).append(Ansi.DIM).append(treeLine).append(Ansi.RESET)
-                        .append(PROPERTY_NAME).append("Instance (").append(TYPE_OTHER).append(row.instance.handle).append(PROPERTY_NAME).append(") ").append(DIM_GRAY).append(summary).append(Ansi.RESET).append("\n")
                 }
                 is InspectRow.InstanceAttributeRow -> {
                     if (row.attribute.isPagination) {
-                        buf.append(prefix).append(Ansi.YELLOW).append("... ").append(row.attribute.value).append(Ansi.RESET).append("\n")
+                        buf.append(prefix).append(DIM_GRAY).append("··· ").append(row.attribute.value).append(RESET).append("\n")
                     } else {
-                        val typeStr = "(${row.attribute.type})"
-                        val typeColor = when (row.attribute.type.lowercase()) {
-                            "boolean", "bool" -> TYPE_BOOLEAN
-                            "int", "long", "float", "double", "short", "byte" -> TYPE_NUMBER
-                            "string", "char", "charsequence" -> TYPE_STRING
-                            else -> TYPE_OTHER
-                        }
-                        val valColor = if (row.attribute.value == "null") Ansi.RED else typeColor
-                        
-                        val valueMax = maxOf(10, termWidth - visualIndent - row.attribute.name.length - typeStr.length - 10)
-                        val displayValue = if (row.attribute.value.length > valueMax) {
-                            row.attribute.value.take(valueMax - 3) + "..."
-                        } else {
-                            row.attribute.value
-                        }
+                        val attrName = row.attribute.name
+                        val attrType = row.attribute.type
+                        val attrVal  = row.attribute.value
+
+                        // Truncate value if needed
+                        val maxValLen = maxOf(10, termWidth - visualIndent - attrName.length - attrType.length - 10)
+                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxValLen - 3) + "..." else attrVal
+
+                        val isObjectRef = row.attribute.childId != null
 
                         buf.append(prefix)
-                        buf.append(PROPERTY_NAME).append(row.attribute.name).append(Ansi.RESET)
-                        buf.append(" ").append(typeColor).append(typeStr).append(Ansi.RESET)
-                        buf.append(" : ")
-                        if (row.attribute.type.lowercase() == "string" && row.attribute.value != "null") {
-                            buf.append(valColor).append("\"").append(displayValue).append("\"").append(Ansi.RESET)
+                        if (isObjectRef) {
+                            // Object reference: blue name + inspect hint
+                            buf.append(C_ORANGE).append(attrName).append(RESET)
+                            buf.append(DIM_GRAY).append(": ").append(RESET)
+                            buf.append(C_BLUE).append(attrType).append(RESET)
+                            buf.append(DIM_GRAY).append("  → I").append(RESET)
                         } else {
-                            buf.append(valColor).append(displayValue).append(Ansi.RESET)
+                            // Primitive / string
+                            val valColor = when (attrType.lowercase()) {
+                                "boolean", "bool"                                    -> TYPE_BOOLEAN
+                                "int", "long", "float", "double", "short", "byte"   -> TYPE_NUMBER
+                                "string", "char", "charsequence"                    -> TYPE_STRING
+                                else                                                 -> TYPE_OTHER
+                            }
+                            val valDisplay = if (attrType.lowercase() == "string" && attrVal != "null") "\"$displayVal\"" else displayVal
+                            val valColorFinal = if (attrVal == "null") Ansi.RED else valColor
+
+                            buf.append(C_ORANGE).append(attrName).append(RESET)
+                            buf.append(DIM_GRAY).append(": ").append(RESET)
+                            buf.append(valColorFinal).append(valDisplay).append(RESET)
                         }
                         buf.append("\n")
                     }
                 }
                 is InspectRow.InfoRow -> {
-                    val color = if (row.isError) Ansi.RED else if (row.isDim) Ansi.DIM else Ansi.RESET
-                    val text = if (row.text.contains("loading", ignoreCase = true)) {
-                        val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
-                        "$frame ${row.text}"
+                    val color = if (row.isError) Ansi.RED else if (row.isDim) DIM_GRAY else RESET
+                    val text  = if (row.text.contains("loading", ignoreCase = true)) {
+                        "${ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)} ${row.text}"
                     } else {
                         row.text
                     }
-                    buf.append(prefix).append(color).append(text).append(Ansi.RESET).append("\n")
+                    buf.append(prefix).append(color).append(text).append(RESET).append("\n")
                 }
             }
         }
