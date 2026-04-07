@@ -50,7 +50,7 @@ object Renderer {
     private const val J_TYPE = "\u001b[38;5;114m"
     private const val J_PACKAGE = "\u001b[90m"
     private const val J_CLASS = "\u001b[97m"
-    private const val J_METHOD = "\u001b[38;5;220m"
+    private const val J_METHOD = "\u001b[38;5;222m"
     private const val J_NUMBER = "\u001b[38;5;173m"
     
     private const val LOGO = """
@@ -669,7 +669,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         it.className == state.inspectTargetClassName && it.memberSignature == row.method
                     }
                     val nameStr    = "${J_METHOD}$memberName${RESET}"
-                    val paramsStr  = "${DIM_GRAY}($params)${RESET}"
+                    val paramsStr  = "${LIGHT_GRAY}($params)${RESET}"
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
                     val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
