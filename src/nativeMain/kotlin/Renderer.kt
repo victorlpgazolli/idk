@@ -1,3 +1,5 @@
+import platform.GameplayKit.GKState.Companion.state
+
 object Ansi {
     const val RESET = "\u001b[0m"
     const val WHITE = "\u001b[97m"
@@ -70,8 +72,12 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 """
 
     private fun renderHeader(buf: StringBuilder, state: AppState, termWidth: Int) {
-        val pkg = if (state.appPackageName.isNotEmpty()) state.appPackageName else "no package"
-        val statusText = "● connected"
+        val pkg = state.appPackageName.ifEmpty { "no package" }
+        val (statusText, isError) = when {
+            (state.gadgetInstallStatus == GadgetInstallStatus.SUCCESS || state.gadgetInstallStatus == GadgetInstallStatus.IDLE)
+                    && state.rpcError == null -> Pair("● connected", false)
+            else -> Pair("● disconnected", true)
+        }
         val leftText = " IDK"
 
         // Visible character counts (no escape codes)
@@ -89,7 +95,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val padding = maxOf(1, termWidth - visibleSoFar - rightLen)
         buf.append(" ".repeat(padding))
 
-        buf.append(C_GREEN).append(statusText).append(RESET).append(C_HEADER_BG)
+        buf.append(
+            if (isError) Ansi.RED else C_GREEN
+        )
+        buf.append(statusText)
+        buf.append(
+            if (isError) Ansi.RESET else RESET
+        ).append(C_HEADER_BG)
+
         buf.append(" ")
         buf.append(RESET).append("\n")
 
@@ -311,29 +324,31 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             buf.append(prefix).append(color).append(option).append(Ansi.RESET).append("\n")
         }
 
-        buf.append("\n")
-        
-        val logs = state.bridgeLogs
-        val logWidth = 80
+        buf.appendBridgeLogBox(state.bridgeLogs)
+    }
+
+    private fun StringBuilder.appendBridgeLogBox(logs: List<String>, logWidth: Int = 80) {
+        append("\n")
+
         val topBorder = "╭" + "─".repeat(logWidth) + "╮"
         val bottomBorder = "╰" + "─".repeat(logWidth) + "╯"
-        
-        buf.append(Ansi.DIM)
-        buf.append("  ").append(topBorder).append("\n")
-        buf.append("  │ ").append("Bridge Logs".padEnd(logWidth - 1)).append("│\n")
-        buf.append("  ├").append("─".repeat(logWidth)).append("┤\n")
-        
+
+        append(Ansi.DIM)
+        append("  ").append(topBorder).append("\n")
+        append("  │ ").append("Bridge Logs".padEnd(logWidth - 1)).append("│\n")
+        append("  ├").append("─".repeat(logWidth)).append("┤\n")
+
         for (i in 0 until 10) {
             val logLine = if (i < logs.size) logs[i] else ""
             val truncatedLog = if (logLine.length > logWidth - 2) logLine.substring(0, logWidth - 5) + "..." else logLine
-            buf.append("  │ ")
-            buf.append("\u001b[38;5;244m") // Discrete gray color
-            buf.append(truncatedLog.padEnd(logWidth - 1))
-            buf.append(Ansi.DIM)
-            buf.append("│\n")
+            append("  │ ")
+            append("\u001b[38;5;244m") // Discrete gray color
+            append(truncatedLog.padEnd(logWidth - 1))
+            append(Ansi.DIM)
+            append("│\n")
         }
-        
-        buf.append("  ").append(bottomBorder).append(Ansi.RESET).append("\n")
+
+        append("  ").append(bottomBorder).append(Ansi.RESET).append("\n")
     }
 
     private fun renderHistory(buf: StringBuilder, state: AppState) {
@@ -371,6 +386,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             buf.append(step("Preparing adb environment", GadgetInstallStatus.PREPARING_ADB, listOf(GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
             buf.append(step("Deploying frida-gadget.so", GadgetInstallStatus.DEPLOYING_GADGET, listOf(GadgetInstallStatus.INJECTING_JDWP))).append("\n")
             buf.append(step("Injecting via JDWP...", GadgetInstallStatus.INJECTING_JDWP, emptyList())).append("\n")
+            buf.appendBridgeLogBox(state.bridgeLogs)
         }
 
         if (status == GadgetInstallStatus.ERROR) {
@@ -706,9 +722,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         .append(countInfo).append(RESET).append("\n")
                     if (row.isExpanded && state.inspectInstancesList != null) {
                         val (badgeColor, badgeLabel) = when (state.instancesDetectionMethod) {
-                            "stateflow" -> Pair(C_GREEN,    "● StateFlow  — only current values")
-                            "livedata"  -> Pair(C_BLUE,     "● LiveData   — only current values")
-                            else        -> Pair(C_MID_GRAY, "○ Heap scan  — includes suspended coroutines")
+                            "stateflow" -> Pair(C_GREEN,    "● StateFlow  — showing latest instances of this class")
+                            "livedata"  -> Pair(C_BLUE,     "● LiveData   — showing latest instances of this class")
+                            else        -> Pair(C_MID_GRAY, "○ Heap scan  — showing all instances of this class (caution: it may contain stale references)")
                         }
                         buf.append(prefix).append("  $badgeColor$badgeLabel$RESET\n")
                     }

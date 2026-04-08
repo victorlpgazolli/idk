@@ -99,7 +99,13 @@ fun main(args: Array<String>) {
     scope.launch {
         val logFile = "${CacheManager.cacheDir()}/bridge.log"
         while (state.running) {
-            if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+            val hasFinishedInstallingGadget = state.gadgetInstallStatus != GadgetInstallStatus.IDLE || state.gadgetInstallStatus != GadgetInstallStatus.SUCCESS
+            val canShowBridgeLogs = when (state.mode) {
+                AppMode.DEBUG_ENTRYPOINT,
+                AppMode.DEFAULT -> hasFinishedInstallingGadget
+                else -> false
+            }
+            if (canShowBridgeLogs) {
                 val file = platform.posix.fopen(logFile, "r")
                 if (file != null) {
                     val lines = mutableListOf<String>()
@@ -900,12 +906,12 @@ fun main(args: Array<String>) {
                     if (updatedPkg != null) {
                         state.sharedAppPackageName.value = null
                         loadAndSyncHooks(state, scope, updatedPkg)
-
-                        if (state.inputBuffer.isEmpty()) {
-                            state.inputBuffer = updatedPkg
-                            state.cursorPosition = updatedPkg.length
-                            onInputChanged(state)
-                        }
+// uncomment if you want to start to fill the input buffer with the package name
+//                        if (state.inputBuffer.isEmpty()) {
+//                            state.inputBuffer = updatedPkg
+//                            state.cursorPosition = updatedPkg.length
+//                            onInputChanged(state)
+//                        }
 
                         if (state.displayedClasses.isNotEmpty()) {
                             state.displayedClasses = CommandExecutor.sortClasses(state.displayedClasses, state.appPackageName, state.lastSearchedParam)
