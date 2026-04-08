@@ -29,7 +29,7 @@ object CommandExecutor {
     }
 
     fun initDebugClassFilter(state: AppState, scope: CoroutineScope) {
-        state.mode = AppMode.DEBUG_CLASS_FILTER
+        state.pushMode(AppMode.DEBUG_CLASS_FILTER)
         state.isFetchingClasses = true
         scope.launch {
             val ok = RpcClient.ping()

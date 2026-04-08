@@ -136,8 +136,8 @@ data class AppState(
     var editingAttribute: InstanceAttribute? = null,
     var navigationStack: MutableList<AppMode> = mutableListOf()
 ) {
-    fun pushMode(newMode: AppMode) {
-        if (mode != newMode) {
+    fun pushMode(newMode: AppMode, force: Boolean = false) {
+        if (force || mode != newMode) {
             navigationStack.add(mode)
             mode = newMode
         }
