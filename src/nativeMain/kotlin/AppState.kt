@@ -12,6 +12,7 @@ enum class AppMode {
 
 enum class GadgetInstallStatus {
     IDLE,
+    WAITING_BRIDGE,
     PREPARING_ADB,
     DEPLOYING_GADGET,
     INJECTING_JDWP,
@@ -58,6 +59,7 @@ sealed class InspectRow {
 }
 
 data class AppState(
+    var adbSerial: String? = null,
     var inputBuffer: String = "",
     var cursorPosition: Int = 0,
     var suggestions: List<Command> = emptyList(),
@@ -96,7 +98,9 @@ data class AppState(
     var inspectInstanceAttributes: List<String> = emptyList(),
     var inspectMethods: List<String> = emptyList(),
     var isFetchingInspection: Boolean = false,
-    
+
+    var bridgeLogs: List<String> = emptyList(),
+
     var inspectStaticExpanded: Boolean = false,
     var inspectInstancesExpanded: Boolean = false,
     var inspectInstancesList: List<InstanceInfo>? = null,

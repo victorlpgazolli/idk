@@ -8,6 +8,7 @@ import platform.posix.time_tVar
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 object CommandExecutor {
     private val charPool = ('a'..'z') + ('0'..'9')
@@ -60,18 +61,37 @@ object CommandExecutor {
         }
     }
 
-    fun sortClasses(classes: List<String>, appPackage: String): List<String> {
-        if (appPackage.isEmpty()) return classes.sorted()
-        
+    fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = ""): List<String> {
         val segments = appPackage.split('.')
         val firstTwo = if (segments.size >= 2) segments.take(2).joinToString(".") else ""
         
         return classes.sortedWith(compareByDescending<String> { className ->
-            when {
-                className.startsWith("$appPackage.") || className == appPackage -> 3
-                firstTwo.isNotEmpty() && (className.startsWith("$firstTwo.") || className == firstTwo) -> 2
-                else -> 1
+            var priority = 0
+            
+            if (appPackage.isNotEmpty()) {
+                if (className.startsWith("$appPackage.") || className == appPackage) {
+                    priority = 3
+                } else if (firstTwo.isNotEmpty() && (className.startsWith("$firstTwo.") || className == firstTwo)) {
+                    priority = 2
+                } else {
+                    priority = 1
+                }
+            } else {
+                priority = 1
             }
+
+            if (className.contains("[")) {
+                priority = -1
+            }
+
+            if (searchQuery.isNotEmpty() && priority >= 0) {
+                val simpleName = className.substringAfterLast('.')
+                if (simpleName.startsWith(searchQuery, ignoreCase = true) || className.startsWith(searchQuery, ignoreCase = true)) {
+                    priority += 10
+                }
+            }
+            
+            priority
         }.thenBy { it })
     }
 
@@ -117,11 +137,34 @@ object CommandExecutor {
     }
 
     private fun handleDebug(state: AppState, scope: CoroutineScope) {
-        state.gadgetInstallStatus = GadgetInstallStatus.PREPARING_ADB
+        state.gadgetInstallStatus = GadgetInstallStatus.WAITING_BRIDGE
         state.gadgetErrorMessage = null
         state.gadgetSpinnerFrame = 0
 
         scope.launch {
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE, null)
+            
+            if (!RpcClient.ping()) {
+                val logFile = "${CacheManager.cacheDir()}/bridge.log"
+                val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
+                val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
+                platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+            }
+
+            var bridgeReady = false
+            for (i in 0..10) {
+                if (RpcClient.ping()) {
+                    bridgeReady = true
+                    break
+                }
+                delay(500)
+            }
+            
+            if (!bridgeReady) {
+                state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, "Bridge not ready. Is it running?")
+                return@launch
+            }
+
             state.sharedGadgetResult.value = Pair(GadgetInstallStatus.PREPARING_ADB, null)
 
             val (envResult, envError) = RpcClient.prepareEnvironment()

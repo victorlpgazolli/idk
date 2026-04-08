@@ -1,6 +1,8 @@
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.refTo
+import kotlinx.cinterop.toKString
 import platform.posix.gettimeofday
 import platform.posix.timeval
 
@@ -46,6 +48,12 @@ fun main(args: Array<String>) {
 
     var initialMode = AppMode.DEFAULT
     var inspectTarget = ""
+    var adbSerial: String? = null
+
+    if (args.contains("--serial") && args.indexOf("--serial") + 1 < args.size) {
+        adbSerial = args[args.indexOf("--serial") + 1]
+    }
+
     if (args.contains("--mode") && args.indexOf("--mode") + 1 < args.size) {
         val modeIdx = args.indexOf("--mode")
         val modeStr = args[modeIdx + 1]
@@ -66,7 +74,7 @@ fun main(args: Array<String>) {
         return
     }
 
-    val state = AppState(mode = initialMode)
+    val state = AppState(adbSerial = adbSerial, mode = initialMode)
     if (args.contains("--mode")) {
         state.isSubPane = true
     }
@@ -84,6 +92,30 @@ fun main(args: Array<String>) {
             if (pkg != null) {
                 loadAndSyncHooks(state, scope, pkg)
             }
+        }
+    }
+
+    // Bridge logs background reading
+    scope.launch {
+        val logFile = "${CacheManager.cacheDir()}/bridge.log"
+        while (state.running) {
+            if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                val file = platform.posix.fopen(logFile, "r")
+                if (file != null) {
+                    val lines = mutableListOf<String>()
+                    val buffer = ByteArray(1024)
+                    while (platform.posix.fgets(buffer.refTo(0), buffer.size, file) != null) {
+                        lines.add(buffer.toKString().trimEnd('\n', '\r'))
+                    }
+                    platform.posix.fclose(file)
+                    val newLogs = lines.takeLast(10)
+                    if (newLogs != state.bridgeLogs) {
+                        state.bridgeLogs = newLogs
+                        // Trigger render somehow? Not strictly necessary if input loop ticks, but better safe.
+                    }
+                }
+            }
+            delay(500)
         }
     }
 
@@ -755,12 +787,12 @@ fun main(args: Array<String>) {
                 }
 
                 // Gadget install status polling
-                if (state.gadgetInstallStatus == GadgetInstallStatus.PREPARING_ADB || 
+                if (state.gadgetInstallStatus == GadgetInstallStatus.WAITING_BRIDGE ||
+                    state.gadgetInstallStatus == GadgetInstallStatus.PREPARING_ADB ||
                     state.gadgetInstallStatus == GadgetInstallStatus.DEPLOYING_GADGET ||
                     state.gadgetInstallStatus == GadgetInstallStatus.INJECTING_JDWP) {
                     state.gadgetSpinnerFrame++
                     needsRender = true
-
                     val gadgetUpdate = state.sharedGadgetResult.value
                     if (gadgetUpdate != null) {
                         state.sharedGadgetResult.value = null
@@ -831,7 +863,7 @@ fun main(args: Array<String>) {
                     
                     val fetched = state.sharedFetchedClasses.value
                     if (fetched != null) {
-                        state.displayedClasses = CommandExecutor.sortClasses(fetched, state.appPackageName)
+                        state.displayedClasses = CommandExecutor.sortClasses(fetched, state.appPackageName, state.lastSearchedParam)
                         state.selectedClassIndex = if (state.displayedClasses.isNotEmpty()) 0 else -1
                         state.sharedFetchedClasses.value = null
                         state.isFetchingClasses = false
@@ -858,7 +890,7 @@ fun main(args: Array<String>) {
                         }
 
                         if (state.displayedClasses.isNotEmpty()) {
-                            state.displayedClasses = CommandExecutor.sortClasses(state.displayedClasses, state.appPackageName)
+                            state.displayedClasses = CommandExecutor.sortClasses(state.displayedClasses, state.appPackageName, state.lastSearchedParam)
                             needsRender = true
                         }
                     }
@@ -925,6 +957,12 @@ fun main(args: Array<String>) {
 
     Terminal.disableRawMode()
     HistoryStore.save(state.commandHistory)
+
+    if (initialMode == AppMode.DEFAULT) {
+        val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
+        platform.posix.system("if [ -f \"$pidFile\" ]; then kill -9 \$(cat \"$pidFile\") 2>/dev/null; rm \"$pidFile\"; fi")
+    }
+
     print(Ansi.SHOW_CURSOR)
     print(Ansi.CLEAR_SCREEN)
     print(Ansi.CURSOR_HOME)

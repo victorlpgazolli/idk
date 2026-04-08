@@ -311,6 +311,30 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             val color = if (isSelected) Ansi.WHITE else Ansi.DIM
             buf.append(prefix).append(color).append(option).append(Ansi.RESET).append("\n")
         }
+
+        buf.append("\n")
+        
+        val logs = state.bridgeLogs
+        val logWidth = 80
+        val topBorder = "╭" + "─".repeat(logWidth) + "╮"
+        val bottomBorder = "╰" + "─".repeat(logWidth) + "╯"
+        
+        buf.append(Ansi.DIM)
+        buf.append("  ").append(topBorder).append("\n")
+        buf.append("  │ ").append("Bridge Logs".padEnd(logWidth - 1)).append("│\n")
+        buf.append("  ├").append("─".repeat(logWidth)).append("┤\n")
+        
+        for (i in 0 until 10) {
+            val logLine = if (i < logs.size) logs[i] else ""
+            val truncatedLog = if (logLine.length > logWidth - 2) logLine.substring(0, logWidth - 5) + "..." else logLine
+            buf.append("  │ ")
+            buf.append("\u001b[38;5;244m") // Discrete gray color
+            buf.append(truncatedLog.padEnd(logWidth - 1))
+            buf.append(Ansi.DIM)
+            buf.append("│\n")
+        }
+        
+        buf.append("  ").append(bottomBorder).append(Ansi.RESET).append("\n")
     }
 
     private fun renderHistory(buf: StringBuilder, state: AppState) {
@@ -344,6 +368,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         }
 
         if (status != GadgetInstallStatus.IDLE) {
+            buf.append(step("Waiting for bridge...", GadgetInstallStatus.WAITING_BRIDGE, listOf(GadgetInstallStatus.PREPARING_ADB, GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
             buf.append(step("Preparing adb environment", GadgetInstallStatus.PREPARING_ADB, listOf(GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
             buf.append(step("Deploying frida-gadget.so", GadgetInstallStatus.DEPLOYING_GADGET, listOf(GadgetInstallStatus.INJECTING_JDWP))).append("\n")
             buf.append(step("Injecting via JDWP...", GadgetInstallStatus.INJECTING_JDWP, emptyList())).append("\n")
@@ -460,9 +485,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        // Fixed lines: Header(2) + Breadcrumb(2) + Input(1) + ScrollIndicator(1) = 6
-        val fixedLines = 6
-        val maxItems = maxOf(3, termHeight - fixedLines - 1)
+        val isFetching = state.isFetchingClasses || state.isFetchingInstances
+        val actualFixedLines = 2 + 2 + (if (isFetching) 1 else 0) + 3 // Header(2) + Breadcrumb(2) + Fetch(1|0) + Input(3)
+        val maxItems = maxOf(3, termHeight - actualFixedLines - 1) // -1 for footer
 
         val (startIdx, endIdx) = ListRenderer.computeViewport(
             state.displayedClasses.size, state.selectedClassIndex, maxItems
@@ -824,7 +849,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val name       = extractMemberName(hook.memberSignature)
                 val selColor   = if (isSelected) WHITE else DIM_GRAY
 
-                val cell = "$selColor$selMark$statusMark$color$name$RESET"
+                val cell = "$selColor$selMark$RESET$statusMark$color$name$RESET"
                 val visLen = 2 + 4 + name.length // 2 (selMark) + 4 ("[✓] ") + name
                 buf.append(cell)
                 buf.append(" ".repeat(maxOf(0, leftWidth - visLen)))
