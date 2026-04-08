@@ -976,6 +976,11 @@ fun main(args: Array<String>) {
     Terminal.disableRawMode()
     HistoryStore.save(state.commandHistory)
 
+    if (state.appPackageName.isNotEmpty()) {
+        val disabledHooks = HookStore.load(state.appPackageName).map { it.copy(enabled = false) }.toSet()
+        HookStore.save(state.appPackageName, disabledHooks)
+    }
+
     if (initialMode == AppMode.DEFAULT) {
         val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
         platform.posix.system("if [ -f \"$pidFile\" ]; then kill -9 \$(cat \"$pidFile\") 2>/dev/null; rm \"$pidFile\"; fi")
