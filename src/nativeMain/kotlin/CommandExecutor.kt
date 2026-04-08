@@ -69,11 +69,17 @@ object CommandExecutor {
         platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
     }
 
-    fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = ""): List<String> {
+    fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = "", showSynthetic: Boolean = false): List<String> {
+        val filteredClasses = if (!showSynthetic && !searchQuery.contains('$')) {
+            classes.filter { !it.contains('$') }
+        } else {
+            classes
+        }
+
         val segments = appPackage.split('.')
         val firstTwo = if (segments.size >= 2) segments.take(2).joinToString(".") else ""
         
-        return classes.sortedWith(compareByDescending<String> { className ->
+        return filteredClasses.sortedWith(compareByDescending<String> { className ->
             var priority = 0
             
             if (appPackage.isNotEmpty()) {

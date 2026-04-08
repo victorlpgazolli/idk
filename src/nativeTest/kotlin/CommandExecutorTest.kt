@@ -50,4 +50,29 @@ class CommandExecutorTest {
         val sorted = CommandExecutor.sortClasses(emptyList(), "com.example", "")
         assertEquals(0, sorted.size)
     }
+
+    @Test
+    fun testSyntheticClassFiltering() {
+        val classes = listOf(
+            "com.example.MainActivity",
+            "com.example.MainActivity\$1",
+            "com.example.MainActivity\$Companion",
+            "android.app.Activity"
+        )
+
+        // Default: hide synthetic (contain $)
+        val defaultSorted = CommandExecutor.sortClasses(classes, "com.example", "")
+        assertEquals(2, defaultSorted.size)
+        assertTrue(defaultSorted.none { it.contains('$') })
+
+        // showSynthetic = true: show all
+        val allShown = CommandExecutor.sortClasses(classes, "com.example", "", showSynthetic = true)
+        assertEquals(4, allShown.size)
+        assertTrue(allShown.any { it.contains('$') })
+
+        // searchQuery contains $: show all
+        val searchWithDollar = CommandExecutor.sortClasses(classes, "com.example", "MainActivity\$")
+        assertEquals(4, searchWithDollar.size)
+        assertTrue(searchWithDollar.any { it.contains('$') })
+    }
 }
