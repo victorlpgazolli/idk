@@ -133,8 +133,25 @@ data class AppState(
     var hookLogScrollOffset: Int = 0,
 
     var editingInstanceId: String = "",
-    var editingAttribute: InstanceAttribute? = null
+    var editingAttribute: InstanceAttribute? = null,
+    var navigationStack: MutableList<AppMode> = mutableListOf()
 ) {
+    fun pushMode(newMode: AppMode) {
+        if (mode != newMode) {
+            navigationStack.add(mode)
+            mode = newMode
+        }
+    }
+
+    fun popMode(): AppMode? {
+        if (navigationStack.isNotEmpty()) {
+            val prev = navigationStack.removeAt(navigationStack.size - 1)
+            mode = prev
+            return mode
+        }
+        return null
+    }
+
     fun addHookEvent(event: HookEvent) {
         val last = hookEvents.lastOrNull()
         if (last != null && last.target == event.target && event.timestamp - last.timestamp < 500 && last.data == event.data) {
