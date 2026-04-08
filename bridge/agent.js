@@ -105,16 +105,23 @@ rpc.exports = {
     },
     
     inspectclass: function(className) {
-        var attributes = [];
+        var staticAttributes = [];
+        var instanceAttributes = [];
         var methods = [];
         try {
             Java.perform(function() {
                 var clazz = Java.use(className);
                 var classDef = clazz.class;
                 
+                var Modifier = Java.use("java.lang.reflect.Modifier");
                 var fields = classDef.getDeclaredFields();
                 for (var i = 0; i < fields.length; i++) {
-                    attributes.push(fields[i].toString());
+                    var f = fields[i];
+                    if (Modifier.isStatic(f.getModifiers())) {
+                        staticAttributes.push(f.toString());
+                    } else {
+                        instanceAttributes.push(f.toString());
+                    }
                 }
                 
                 var funcs = classDef.getDeclaredMethods();
@@ -122,10 +129,10 @@ rpc.exports = {
                     methods.push(funcs[j].toString());
                 }
             });
-            return { attributes: attributes, methods: methods };
+            return { staticAttributes: staticAttributes, instanceAttributes: instanceAttributes, methods: methods };
         } catch (e) {
             // Using error field to communicate exceptions back to RPC
-            return { error: e.toString(), attributes: [], methods: [] };
+            return { error: e.toString(), staticAttributes: [], instanceAttributes: [], methods: [] };
         }
     },
 
@@ -391,15 +398,10 @@ rpc.exports = {
                 var dotParts = fullMethodPath.split('.');
                 var methodName = dotParts[dotParts.length - 1];
                 
-                if (!targetClass[methodName]) {
-                    throw new Error("Method '" + methodName + "' not found on class '" + className + "'");
-                }
-                
-                if (activeHookImplementations[className + methodSig]) {
-                    return;
-                }
-                
-                if (targetClass[methodName].overloads) {
+                if (targetClass[methodName] && targetClass[methodName].overloads) {
+                    if (activeHookImplementations[className + methodSig]) {
+                        return;
+                    }
                     var overload = targetClass[methodName].overloads[0]; 
 
                     activeHookImplementations[className + methodSig] = overload.implementation;
@@ -419,22 +421,44 @@ rpc.exports = {
                         return ret;
                     };
                 } else {
+                    // It's probably a field if it's not a method
                     if (monitoredFields[className + methodSig]) return;
                     
                     var isStaticField = false;
                     try {
                         var clazz = Java.use(className);
-                        var f = clazz.class.getDeclaredField(methodName);
+                        var currentClass = clazz.class;
+                        var field = null;
                         var Modifier = Java.use("java.lang.reflect.Modifier");
-                        if (Modifier.isStatic(f.getModifiers())) {
-                            isStaticField = true;
+
+                        // Iterate hierarchy to find the field and check if it's static
+                        while (currentClass !== null) {
+                            try {
+                                field = currentClass.getDeclaredField(methodName);
+                                break;
+                            } catch (e) {
+                                currentClass = currentClass.getSuperclass();
+                            }
+                        }
+
+                        if (field !== null) {
+                            field.setAccessible(true);
+                            if (Modifier.isStatic(field.getModifiers())) {
+                                isStaticField = true;
+                            }
                         }
                     } catch (e) {
                         console.error("Error checking field " + methodName + " on " + className + ": " + e);
                     }
 
                     if (!isStaticField) {
-                        console.warn("Field " + methodName + " is not static or not found. Instance field hooking is not supported.");
+                        console.warn("Field " + methodName + " is not static or not found. Instance field hooking is not supported yet.");
+                        // Send an event to the UI so the user knows why it's not working
+                        hookEvents.push({
+                            timestamp: Date.now(),
+                            target: { className: className, memberSignature: methodSig, type: "FIELD" },
+                            data: { value: "[Error] Not a static field" }
+                        });
                         return;
                     }
 
@@ -444,6 +468,13 @@ rpc.exports = {
                         signature: methodSig,
                         lastValue: undefined
                     };
+
+                    // Send an initial event to confirm hook is active
+                    hookEvents.push({
+                        timestamp: Date.now(),
+                        target: { className: className, memberSignature: methodSig, type: "FIELD" },
+                        data: { value: "Watching for changes..." }
+                    });
                     
                     if (!fieldPollingInterval) {
                         fieldPollingInterval = setInterval(function() {
@@ -452,23 +483,37 @@ rpc.exports = {
                                     var info = monitoredFields[key];
                                     try {
                                         var clazz = Java.use(info.className);
-                                        var val = clazz[info.fieldName].value;
-                                        var valStr = javaToString(val);
-                                        if (info.lastValue === undefined) {
-                                            info.lastValue = valStr;
-                                        } else if (valStr !== info.lastValue) {
-                                            var oldVal = info.lastValue;
-                                            info.lastValue = valStr;
-                                            hookEvents.push({
-                                                timestamp: Date.now(),
-                                                target: { className: info.className, memberSignature: info.signature, type: "FIELD" },
-                                                data: { value: oldVal + " | " + valStr }
-                                            });
+                                        var currentClass = clazz.class;
+                                        var field = null;
+                                        while (currentClass !== null) {
+                                            try {
+                                                field = currentClass.getDeclaredField(info.fieldName);
+                                                break;
+                                            } catch (e) {
+                                                currentClass = currentClass.getSuperclass();
+                                            }
+                                        }
+                                        if (field) {
+                                            field.setAccessible(true);
+                                            var val = field.get(null);
+                                            var valStr = javaToString(val);
+                                            
+                                            if (info.lastValue === undefined) {
+                                                info.lastValue = valStr;
+                                            } else if (valStr !== info.lastValue) {
+                                                var oldVal = info.lastValue;
+                                                info.lastValue = valStr;
+                                                hookEvents.push({
+                                                    timestamp: Date.now(),
+                                                    target: { className: info.className, memberSignature: info.signature, type: "FIELD" },
+                                                    data: { value: oldVal + " | " + valStr }
+                                                });
+                                            }
                                         }
                                     } catch (e) {}
                                 }
                             });
-                        }, 500);
+                        }, 250);
                     }
                 }
             } catch (e) {

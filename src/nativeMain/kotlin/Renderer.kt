@@ -564,7 +564,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             return
         }
 
-        if (state.isFetchingInspection && state.inspectAttributes.isEmpty() && state.inspectMethods.isEmpty()) {
+        if (state.isFetchingInspection && state.inspectStaticAttributes.isEmpty() && state.inspectInstanceAttributes.isEmpty() && state.inspectMethods.isEmpty()) {
             buf.append(Ansi.DIM).append("  Parsing class structure via Frida...").append(Ansi.RESET).append("\n")
             return
         }

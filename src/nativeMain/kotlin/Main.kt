@@ -170,7 +170,8 @@ fun main(args: Array<String>) {
                                 val target = hooks[state.selectedHookIndex]
                                 state.inspectTargetClassName = target.className
                                 state.isFetchingInspection = true
-                                state.inspectAttributes = emptyList()
+                                state.inspectStaticAttributes = emptyList()
+                                state.inspectInstanceAttributes = emptyList()
                                 state.inspectMethods = emptyList()
                                 state.inspectExpandedInstances.clear()
                                 state.selectedClassIndex = 0
@@ -246,7 +247,8 @@ fun main(args: Array<String>) {
                             state.inspectBackStack.add(state.inspectTargetClassName)
                             state.inspectTargetClassName = targetClassName
                             state.isFetchingInspection = true
-                            state.inspectAttributes = emptyList()
+                            state.inspectStaticAttributes = emptyList()
+                            state.inspectInstanceAttributes = emptyList()
                             state.inspectMethods = emptyList()
                             state.inspectExpandedInstances.clear()
                             state.inspectExpandedInstancesError.clear()
@@ -688,7 +690,8 @@ fun main(args: Array<String>) {
                         val prevClass = state.inspectBackStack.removeAt(state.inspectBackStack.size - 1)
                         state.inspectTargetClassName = prevClass
                         state.isFetchingInspection = true
-                        state.inspectAttributes = emptyList()
+                        state.inspectStaticAttributes = emptyList()
+                        state.inspectInstanceAttributes = emptyList()
                         state.inspectMethods = emptyList()
                         state.inspectExpandedInstances.clear()
                         state.inspectExpandedInstancesError.clear()
@@ -864,7 +867,8 @@ fun main(args: Array<String>) {
                 if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
                     val prevInspectStatus = state.sharedInspectResult.value
                     if (prevInspectStatus != null) {
-                        state.inspectAttributes = prevInspectStatus.attributes
+                        state.inspectStaticAttributes = prevInspectStatus.staticAttributes
+                        state.inspectInstanceAttributes = prevInspectStatus.instanceAttributes
                         state.inspectMethods = prevInspectStatus.methods
                         state.sharedInspectResult.value = null
                         needsRender = true

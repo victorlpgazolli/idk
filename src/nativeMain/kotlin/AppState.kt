@@ -23,7 +23,8 @@ data class Command(val name: String, val description: String)
 
 @Serializable
 data class ClassInspectionResult(
-    val attributes: List<String>,
+    val staticAttributes: List<String>,
+    val instanceAttributes: List<String>,
     val methods: List<String>
 )
 
@@ -91,7 +92,8 @@ data class AppState(
     // Inspect Mode additions
     var inspectTargetClassName: String = "",
     val sharedInspectResult: AtomicReference<ClassInspectionResult?> = AtomicReference(null),
-    var inspectAttributes: List<String> = emptyList(),
+    var inspectStaticAttributes: List<String> = emptyList(),
+    var inspectInstanceAttributes: List<String> = emptyList(),
     var inspectMethods: List<String> = emptyList(),
     var isFetchingInspection: Boolean = false,
     
@@ -142,7 +144,7 @@ data class AppState(
         
         rows.add(InspectRow.SectionStaticRow(inspectStaticExpanded))
         if (inspectStaticExpanded) {
-            inspectAttributes.forEach { rows.add(InspectRow.StaticAttributeRow(it)) }
+            inspectStaticAttributes.forEach { rows.add(InspectRow.StaticAttributeRow(it)) }
             inspectMethods.forEach { rows.add(InspectRow.StaticMethodRow(it)) }
         }
 
