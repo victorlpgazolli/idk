@@ -250,6 +250,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 FooterKey("↑↓", "Navigate"),
                 FooterKey("Enter", "Inspect"),
                 FooterKey("\\", "Count"),
+                FooterKey("S", if (state.showSyntheticClasses) "Hide Synth" else "Show Synth"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
             )
