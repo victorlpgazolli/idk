@@ -114,6 +114,97 @@ function getInstanceStatus(instance) {
     return status;
 }
 
+/**
+ * Retorna instâncias "ativas" de className.
+ *
+ * Estratégia 1 — StateFlow: lê _state$volatile de cada StateFlowImpl no heap.
+ *   Instâncias presas em continuations de coroutines (valores antigos de collectors
+ *   suspensos) são ignoradas — não representam o estado atual do app.
+ *
+ * Estratégia 2 — LiveData: lê o campo mData de cada LiveData no heap.
+ *
+ * Estratégia 3 — Fallback: Java.choose convencional (retorna todas as instâncias,
+ *   incluindo as presas em continuations). Usado quando className não é exposto
+ *   via StateFlow nem LiveData.
+ *
+ * @param {string} className  Nome completo da classe Java a inspecionar.
+ * @returns {{ instances: Array<{id:string, handle:string, instance:object}>, method: string }}
+ */
+function resolveActiveInstances(className) {
+    var found = {};
+
+    // ── Estratégia 1: StateFlow ───────────────────────────────────────────────
+    try {
+        Java.choose('kotlinx.coroutines.flow.StateFlowImpl', {
+            onMatch: function(sf) {
+                try {
+                    var fieldNames = ['_state$volatile', '_state'];
+                    for (var i = 0; i < fieldNames.length; i++) {
+                        try {
+                            var f = sf.getClass().getDeclaredField(fieldNames[i]);
+                            f.setAccessible(true);
+                            var val = f.get(sf);
+                            if (val !== null && val.getClass().getName() === className) {
+                                var id = val.$handle ? val.$handle.toString() : val.hashCode().toString();
+                                if (!found[id]) {
+                                    found[id] = { id: id, handle: val.$handle ? val.$handle.toString() : "", instance: val };
+                                }
+                            }
+                            break;
+                        } catch(fieldErr) {}
+                    }
+                } catch(e) {}
+            },
+            onComplete: function() {}
+        });
+    } catch(e) {}
+
+    if (Object.keys(found).length > 0) {
+        return { instances: Object.values(found), method: 'stateflow' };
+    }
+
+    // ── Estratégia 2: LiveData ────────────────────────────────────────────────
+    try {
+        Java.choose('androidx.lifecycle.LiveData', {
+            onMatch: function(ld) {
+                try {
+                    var f = ld.getClass().getDeclaredField('mData');
+                    f.setAccessible(true);
+                    var val = f.get(ld);
+                    if (val !== null && val.getClass().getName() === className) {
+                        var id = val.$handle ? val.$handle.toString() : val.hashCode().toString();
+                        if (!found[id]) {
+                            found[id] = { id: id, handle: val.$handle ? val.$handle.toString() : "", instance: val };
+                        }
+                    }
+                } catch(e) {}
+            },
+            onComplete: function() {}
+        });
+    } catch(e) {}
+
+    if (Object.keys(found).length > 0) {
+        return { instances: Object.values(found), method: 'livedata' };
+    }
+
+    // ── Estratégia 3: Fallback heap scan ─────────────────────────────────────
+    var seen = {};
+    try {
+        Java.choose(className, {
+            onMatch: function(instance) {
+                var id = instance.$handle ? instance.$handle.toString() : instance.hashCode().toString();
+                if (!seen[id]) {
+                    seen[id] = true;
+                    found[id] = { id: id, handle: instance.$handle ? instance.$handle.toString() : "", instance: instance };
+                }
+            },
+            onComplete: function() {}
+        });
+    } catch(e) {}
+
+    return { instances: Object.values(found), method: 'heap_scan' };
+}
+
 rpc.exports = {
     listclasses: function(searchParam) {
         var classes = [];
@@ -180,56 +271,39 @@ rpc.exports = {
     },
 
     countinstances: function(className) {
-        var count = 0;
-        var seen = {};
         try {
+            var result;
             Java.perform(function() {
-                Java.choose(className, {
-                    onMatch: function(instance) {
-                        var id = instance.$handle ? instance.$handle.toString() : instance.hashCode().toString();
-                        if (!seen[id]) {
-                            seen[id] = true;
-                            count++;
-                        }
-                    },
-                    onComplete: function() {}
-                });
+                result = resolveActiveInstances(className);
             });
-            return count;
-        } catch (e) {
+            return result ? result.instances.length : 0;
+        } catch(e) {
             return -1;
         }
     },
 
     listinstances: function(className) {
-        var instances = [];
-        var total = 0;
-        var seen = {};
         try {
+            var instances = [];
+            var method = 'heap_scan';
             Java.perform(function() {
-                Java.choose(className, {
-                    onMatch: function(instance) {
-                        var id = instance.$handle ? instance.$handle.toString() : instance.hashCode().toString();
-                        if (!seen[id]) {
-                            seen[id] = true;
-                            total++;
-                            if (instances.length < 1000) {
-                                var hndl = instance.$handle ? instance.$handle.toString() : "";
-                                instanceCache[id] = instance;
-                                instances.push({
-                                    id: id,
-                                    handle: hndl,
-                                    summary: instance.toString() + " (" + getInstanceStatus(instance) + ")"
-                                });
-                            }
-                        }
-                    },
-                    onComplete: function() {}
+                var result = resolveActiveInstances(className);
+                method = result.method;
+                result.instances.forEach(function(item) {
+                    if (instances.length < 1000) {
+                        instanceCache[item.id] = item.instance;
+                        instances.push({
+                            id: item.id,
+                            handle: item.handle,
+                            summary: item.instance.toString() + " (" + getInstanceStatus(item.instance) + ")",
+                            detectionMethod: method
+                        });
+                    }
                 });
             });
-            return { instances: instances, totalCount: total };
-        } catch (e) {
-            return { error: e.toString(), instances: [], totalCount: 0 };
+            return { instances: instances, totalCount: instances.length, detectionMethod: method };
+        } catch(e) {
+            return { error: e.toString(), instances: [], totalCount: 0, detectionMethod: 'error' };
         }
     },
 

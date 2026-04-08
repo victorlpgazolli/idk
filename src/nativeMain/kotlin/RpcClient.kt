@@ -95,13 +95,15 @@ data class JsonRpcRequestInspectInstance(
 data class InstanceInfo(
     val id: String,
     val handle: String,
-    val summary: String
+    val summary: String,
+    val detectionMethod: String = "heap_scan"
 )
 
 @Serializable
 data class ListInstancesResult(
     val instances: List<InstanceInfo>,
-    val totalCount: Int
+    val totalCount: Int,
+    val detectionMethod: String = "heap_scan"
 )
 
 @Serializable

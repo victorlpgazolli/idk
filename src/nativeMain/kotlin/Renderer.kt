@@ -165,6 +165,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(Ansi.CURSOR_HOME)
         buf.append(Ansi.HIDE_CURSOR)
 
+        val hasInputBox: Boolean
         if (state.mode == AppMode.DEFAULT) {
             renderLogo(buf)
             renderWelcome(buf)
@@ -172,14 +173,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             renderCtrlCWarning(buf, state)
             renderInputBox(buf, state, width)
             renderSuggestions(buf, state)
-            buf.append(Ansi.RESTORE_CURSOR)
+            hasInputBox = true
         } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
             renderHeader(buf, state, termWidth)
             renderBreadcrumb(buf, state, termWidth)
             renderClassFetchStatus(buf, state)
             renderInputBox(buf, state, termWidth - 2)
             renderClassList(buf, state, termWidth, termHeight)
-            buf.append(Ansi.RESTORE_CURSOR)
+            hasInputBox = true
         } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS || state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
             renderHeader(buf, state, termWidth)
             renderBreadcrumb(buf, state, termWidth)
@@ -189,22 +190,27 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 renderInputBox(buf, state, termWidth - 2)
             }
             renderInspectClassList(buf, state, termWidth, termHeight)
-            if (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE) {
-                buf.append(Ansi.RESTORE_CURSOR)
-            }
+            hasInputBox = (state.mode == AppMode.DEBUG_EDIT_ATTRIBUTE)
         } else if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
             renderLogo(buf)
             renderWelcome(buf)
             renderCtrlCWarning(buf, state)
             renderDebugEntrypoint(buf, state)
+            hasInputBox = false
         } else if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
             renderHeader(buf, state, termWidth)
             renderBreadcrumb(buf, state, termWidth)
             renderHookWatchMode(buf, state, termWidth, termHeight)
+            hasInputBox = false
+        } else {
+            hasInputBox = false
         }
 
         renderFooter(buf, state, termWidth, termHeight)
 
+        if (hasInputBox) {
+            buf.append(Ansi.RESTORE_CURSOR)
+        }
         buf.append(Ansi.SHOW_CURSOR)
 
         print(buf.toString())
@@ -698,6 +704,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     buf.append(prefix)
                         .append(C_MID_GRAY).append("$arrow Instances").append(RESET)
                         .append(countInfo).append(RESET).append("\n")
+                    if (row.isExpanded && state.inspectInstancesList != null) {
+                        val (badgeColor, badgeLabel) = when (state.instancesDetectionMethod) {
+                            "stateflow" -> Pair(C_GREEN,    "● StateFlow  — only current values")
+                            "livedata"  -> Pair(C_BLUE,     "● LiveData   — only current values")
+                            else        -> Pair(C_MID_GRAY, "○ Heap scan  — includes suspended coroutines")
+                        }
+                        buf.append(prefix).append("  $badgeColor$badgeLabel$RESET\n")
+                    }
                 }
                 is InspectRow.StaticAttributeRow -> {
                     val memberName = StringUtils.extractMemberName(row.attribute)

@@ -928,6 +928,7 @@ fun main(args: Array<String>) {
                     if (listInstancesResult != null) {
                         state.inspectInstancesList = listInstancesResult.instances
                         state.inspectInstancesTotalCount = listInstancesResult.totalCount
+                        state.instancesDetectionMethod = listInstancesResult.detectionMethod
                         state.isFetchingInstancesList = false
                         state.sharedInstancesListResult.value = null
                         needsRender = true

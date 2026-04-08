@@ -106,6 +106,7 @@ data class AppState(
     var inspectInstancesExpanded: Boolean = false,
     var inspectInstancesList: List<InstanceInfo>? = null,
     var inspectInstancesTotalCount: Int = 0,
+    var instancesDetectionMethod: String = "heap_scan",
     var isFetchingInstancesList: Boolean = false,
     val sharedInstancesListResult: AtomicReference<ListInstancesResult?> = AtomicReference(null),
     var inspectExpandedInstances: MutableMap<String, List<InstanceAttribute>?> = mutableMapOf(),
