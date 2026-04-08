@@ -254,6 +254,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 FooterKey("Space", "Toggle"),
                 FooterKey("Del", "Remove"),
                 FooterKey("C", "Clear log"),
+                FooterKey("←→", "Scroll log"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
             )
@@ -942,7 +943,11 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val lines = mutableListOf<String>()
 
         val time       = formatTime(event.timestamp)
-        val memberName = extractMemberName(event.target.memberSignature)
+        var memberName = extractMemberName(event.target.memberSignature)
+        if (event.target.type == HookType.METHOD) {
+            val params = extractParams(event.target.memberSignature)
+            memberName += "($params)"
+        }
         val instanceId = event.data["instanceId"] ?: event.data["handle"] ?: ""
         val hashSuffix = if (instanceId.isNotEmpty()) "  ${DIM_GRAY}@${instanceId.take(7)}${RESET}" else ""
         val countSuffix = if (event.count > 1) " ${DIM_GRAY}×${event.count}${RESET}" else ""
@@ -976,7 +981,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     lines.add("  ${DIM_GRAY}args:${RESET}")
                     val argList = args.split(",").map { it.trim() }
                     argList.forEach { arg ->
-                        val truncated = if (arg.length > maxWidth - 6) arg.take(maxWidth - 9) + "..." else arg
+                        val truncated = if (arg.length > maxWidth - 6) arg.take(maxOf(0, maxWidth - 9)) + "..." else arg
                         lines.add("    ${C_MID_GRAY}$truncated${RESET}")
                     }
                 }
@@ -997,20 +1002,31 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
     /**
      * Formats a value string with indentation. Detects ClassName{k=v, ...} patterns
      * and renders them with one field per line. Nested objects beyond depth 1 collapse
-     * as `{ ··· }`.
+     * as `{ ··· }` or `( ··· )`.
      */
     private fun formatValue(value: String, indent: Int, maxWidth: Int): List<String> {
         val pad = " ".repeat(indent)
+        val trimmed = value.trim()
+        
+        val isBraces = trimmed.endsWith("}")
+        val isParens = trimmed.endsWith(")")
+        
+        val objectPattern = if (isBraces) {
+            Regex("""^(\w[\w.${'$'}]*)\{(.*)\}$""", RegexOption.DOT_MATCHES_ALL)
+        } else if (isParens) {
+            Regex("""^(\w[\w.${'$'}]*)\((.*)\)$""", RegexOption.DOT_MATCHES_ALL)
+        } else null
 
-        // Detect object toString pattern: SomeClass{field=val, ...}  or  SomeClass{...}
-        val objectPattern = Regex("""^(\w[\w.${'$'}]*)\{(.*)\}$""", RegexOption.DOT_MATCHES_ALL)
-        val match = objectPattern.matchEntire(value.trim())
+        val match = objectPattern?.matchEntire(trimmed)
 
         if (match != null) {
             val className = match.groupValues[1]
             val body      = match.groupValues[2]
             val lines     = mutableListOf<String>()
-            lines.add("$pad${C_BLUE}$className${RESET}${DIM_GRAY} {${RESET}")
+            val openChar  = if (isBraces) "{" else "("
+            val closeChar = if (isBraces) "}" else ")"
+            
+            lines.add("$pad${C_BLUE}$className${RESET}${DIM_GRAY}$openChar${RESET}")
 
             // Split fields by ", " but be careful with nested braces
             val fields = splitTopLevelCommas(body)
@@ -1020,20 +1036,29 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val k = field.substring(0, eqIdx).trim()
                     val v = field.substring(eqIdx + 1).trim()
                     // Collapse any nested objects
-                    val vDisplay = if (v.contains('{')) "${v.substringBefore('{').trim()}${DIM_GRAY} { ··· }${RESET}" else v
-                    val truncated = if (vDisplay.length > maxWidth - indent - k.length - 4) vDisplay.take(maxWidth - indent - k.length - 7) + "..." else vDisplay
+                    val vDisplay = if (v.contains('{') || v.contains('(')) {
+                        val firstParen = v.indexOf('(')
+                        val firstBrace = v.indexOf('{')
+                        val firstOpen = listOf(firstParen, firstBrace).filter { it != -1 }.minOrNull() ?: -1
+                        if (firstOpen != -1) {
+                            val openBracket = v[firstOpen]
+                            val closeBracket = if (openBracket == '{') "}" else ")"
+                            "${v.substring(0, firstOpen).trim()}${DIM_GRAY}$openBracket ··· $closeBracket${RESET}"
+                        } else v
+                    } else v
+                    val truncated = if (vDisplay.length > maxWidth - indent - k.length - 4) vDisplay.take(maxOf(0, maxWidth - indent - k.length - 7)) + "..." else vDisplay
                     lines.add("$pad  ${C_PURPLE}$k${RESET}${DIM_GRAY}: ${RESET}$truncated")
-                    } else {
-
-                    lines.add("$pad  ${C_MID_GRAY}${field.take(maxWidth - indent - 2)}${RESET}")
+                } else {
+                    val truncatedField = if (field.length > maxWidth - indent - 2) field.take(maxOf(0, maxWidth - indent - 5)) + "..." else field
+                    lines.add("$pad  ${C_MID_GRAY}${truncatedField}${RESET}")
                 }
             }
-            lines.add("$pad${DIM_GRAY}}${RESET}")
+            lines.add("$pad${DIM_GRAY}$closeChar${RESET}")
             return lines
         }
 
         // Primitive / string
-        val truncated = if (value.length > maxWidth - indent) value.take(maxWidth - indent - 3) + "..." else value
+        val truncated = if (value.length > maxWidth - indent) value.take(maxOf(0, maxWidth - indent - 3)) + "..." else value
         return listOf("$pad${C_MID_GRAY}$truncated${RESET}")
     }
 

@@ -693,7 +693,10 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowLeft -> {
-                if (state.cursorPosition > 0) {
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    state.hookLogScrollOffset = maxOf(0, state.hookLogScrollOffset - 5)
+                    Renderer.render(state)
+                } else if (state.cursorPosition > 0) {
                     state.cursorPosition--
                     onInputChanged(state)
                     Renderer.render(state)
@@ -701,7 +704,10 @@ fun main(args: Array<String>) {
             }
 
             is KeyEvent.ArrowRight -> {
-                if (state.cursorPosition < state.inputBuffer.length) {
+                if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
+                    state.hookLogScrollOffset += 5
+                    Renderer.render(state)
+                } else if (state.cursorPosition < state.inputBuffer.length) {
                     state.cursorPosition++
                     onInputChanged(state)
                     Renderer.render(state)
