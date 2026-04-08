@@ -56,7 +56,7 @@ object CommandExecutor {
             1 -> {
                 state.activeHooks.clear()
                 state.activeHooks.addAll(HookStore.load(state.appPackageName))
-                state.mode = AppMode.DEBUG_HOOK_WATCH
+                state.pushMode(AppMode.DEBUG_HOOK_WATCH)
             }
         }
     }
