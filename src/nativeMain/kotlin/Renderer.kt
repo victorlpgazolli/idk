@@ -233,6 +233,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEBUG_ENTRYPOINT -> listOf(
                 FooterKey("↑↓", "Navigate"),
                 FooterKey("Enter", "Select"),
+                FooterKey("R", "Restart Bridge"),
                 FooterKey("Ctrl+C", "Quit")
             )
             AppMode.DEBUG_CLASS_FILTER -> listOf(
@@ -487,7 +488,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
 
         val isFetching = state.isFetchingClasses || state.isFetchingInstances
         val actualFixedLines = 2 + 2 + (if (isFetching) 1 else 0) + 3 // Header(2) + Breadcrumb(2) + Fetch(1|0) + Input(3)
-        val maxItems = maxOf(3, termHeight - actualFixedLines - 1) // -1 for footer
+        val maxItems = maxOf(3, termHeight - actualFixedLines - 2) // -1 for footer, -1 for scroll indicator
 
         val (startIdx, endIdx) = ListRenderer.computeViewport(
             state.displayedClasses.size, state.selectedClassIndex, maxItems
@@ -530,11 +531,42 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 else          -> "  ${DIM_GRAY}0 inst${RESET}"
             }
 
+            val prefixVisible = ansiVisibleLength(prefix)
+            val countVisible = ansiVisibleLength(countBadge)
+            val availableLen = maxOf(0, termWidth - 1 - prefixVisible - countVisible)
+
+            val fullString = buildString {
+                append(namePart)
+                if (packagePart.isNotEmpty()) {
+                    append(" (").append(packagePart).append(")")
+                }
+            }
+
+            val displayName: String
+            val displayPkg: String
+            if (fullString.length > availableLen) {
+                if (namePart.length > availableLen) {
+                    displayName = namePart.substring(0, maxOf(0, availableLen - 3)) + "..."
+                    displayPkg = ""
+                } else {
+                    displayName = namePart
+                    val pkgAvail = availableLen - namePart.length - 3
+                    if (pkgAvail > 3) {
+                        displayPkg = packagePart.substring(0, pkgAvail - 3) + "..."
+                    } else {
+                        displayPkg = ""
+                    }
+                }
+            } else {
+                displayName = namePart
+                displayPkg = packagePart
+            }
+
             // Row: Name (package ...)
             buf.append(prefix)
-            buf.append(highlight(namePart, nameBaseColor))
-            if (packagePart.isNotEmpty()) {
-                buf.append(" ").append(DIM_GRAY).append("(").append(highlight(packagePart, packageBaseColor)).append(")").append(RESET)
+            buf.append(highlight(displayName, nameBaseColor))
+            if (displayPkg.isNotEmpty()) {
+                buf.append(" ").append(DIM_GRAY).append("(").append(highlight(displayPkg, packageBaseColor)).append(")").append(RESET)
             }
             buf.append(countBadge)
             buf.append(RESET).append("\n")
@@ -680,12 +712,16 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val isHooked   = state.activeHooks.any {
                         it.className == state.inspectTargetClassName && it.memberSignature == row.attribute
                     }
-                    val nameStr    = "${C_PURPLE}$memberName${RESET}"
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val maxLen = maxOf(0, termWidth - 1 - prefixVisible - 2 - hintLen)
+
+                    val displayMember = if (memberName.length > maxLen) memberName.take(maxOf(0, maxLen - 3)) + "..." else memberName
+
+                    val nameStr    = "${C_PURPLE}$displayMember${RESET}"
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
                     // Right-align the H hint: compute visible length
-                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
-                    val pad = maxOf(1, termWidth - prefixVisible - 2 - memberName.length - hintLen)
+                    val pad = maxOf(1, termWidth - prefixVisible - 2 - displayMember.length - hintLen)
 
                     buf.append(prefix).append("  ")
                         .append(nameStr)
@@ -698,12 +734,34 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                     val isHooked   = state.activeHooks.any {
                         it.className == state.inspectTargetClassName && it.memberSignature == row.method
                     }
-                    val nameStr    = "${J_METHOD}$memberName${RESET}"
-                    val paramsStr  = "${LIGHT_GRAY}($params)${RESET}"
+                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
+                    val maxLen = maxOf(0, termWidth - 1 - prefixVisible - 2 - hintLen)
+                    
+                    val displayMember: String
+                    val displayParams: String
+                    if (memberName.length + 2 + params.length > maxLen) {
+                        if (memberName.length > maxLen) {
+                            displayMember = memberName.take(maxOf(0, maxLen - 3)) + "..."
+                            displayParams = ""
+                        } else {
+                            displayMember = memberName
+                            val pAvail = maxLen - memberName.length - 2
+                            if (pAvail > 3) {
+                                displayParams = params.take(pAvail - 3) + "..."
+                            } else {
+                                displayParams = ""
+                            }
+                        }
+                    } else {
+                        displayMember = memberName
+                        displayParams = params
+                    }
+
+                    val nameStr    = "${J_METHOD}$displayMember${RESET}"
+                    val paramsStr  = if (displayParams.isNotEmpty() || params.isEmpty()) "${LIGHT_GRAY}($displayParams)${RESET}" else ""
                     val hookedStr  = if (isHooked) " ${C_ORANGE}[H]${RESET}" else " ${DIM_GRAY}H${RESET}"
 
-                    val hintLen = if (isHooked) 4 else 2  // " [H]" = 4, " H" = 2
-                    val visibleLen = memberName.length + 2 + params.length  // name + "(" + params + ")"
+                    val visibleLen = displayMember.length + (if (displayParams.isNotEmpty() || params.isEmpty()) displayParams.length + 2 else 0)
                     val pad = maxOf(1, termWidth - prefixVisible - 2 - visibleLen - hintLen)
 
                     buf.append(prefix).append("  ")
@@ -750,8 +808,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         } else {
                             attrName.length + 2 // "name: "
                         }
-                        val maxValLen = maxOf(10, termWidth - prefixVisible - labelLen - 5)
-                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxValLen - 3) + "..." else attrVal
+                        val maxValLen = maxOf(0, termWidth - 1 - prefixVisible - labelLen - 5)
+                        val displayVal = if (attrVal.length > maxValLen) attrVal.take(maxOf(0, maxValLen - 3)) + "..." else attrVal
 
                         buf.append(prefix)
                         if (isObjectRef) {

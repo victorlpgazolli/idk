@@ -100,6 +100,7 @@ data class AppState(
     var isFetchingInspection: Boolean = false,
 
     var bridgeLogs: List<String> = emptyList(),
+    val sharedBridgeLogs: AtomicReference<List<String>?> = AtomicReference(null),
 
     var inspectStaticExpanded: Boolean = false,
     var inspectInstancesExpanded: Boolean = false,

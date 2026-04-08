@@ -42,7 +42,7 @@ object CommandExecutor {
                     state.sharedAppPackageName.value = pkgResult
                 }
                 state.lastSearchedParam = state.inputBuffer
-                val (result, error) = RpcClient.listClasses(state.inputBuffer, 0, 200)
+                val (result, error) = RpcClient.listClasses(state.inputBuffer, state.appPackageName, 0, 200)
                 state.sharedFetchedClasses.value = result ?: emptyList()
                 state.sharedRpcError.value = error
                 state.isFetchingClasses = false
@@ -59,6 +59,14 @@ object CommandExecutor {
                 state.mode = AppMode.DEBUG_HOOK_WATCH
             }
         }
+    }
+
+    fun restartBridge(state: AppState, scope: CoroutineScope) {
+        state.bridgeLogs = emptyList()
+        val logFile = "${CacheManager.cacheDir()}/bridge.log"
+        val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
+        val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
+        platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
     }
 
     fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = ""): List<String> {

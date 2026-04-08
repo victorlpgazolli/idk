@@ -134,10 +134,36 @@ class FridaBridge:
         except Exception as e:
             logging.warning(f"Failed to re-attach Frida: {e}")
 
-    def list_classes(self, search_param="", offset=0, limit=200):
+    def list_classes(self, search_param="", app_package="", offset=0, limit=200):
         self.get_session()
         classes = self.script.exports_sync.listclasses(search_param)
-        classes.sort()
+        
+        def get_priority(class_name):
+            priority = 0
+            if app_package:
+                parts = app_package.split(".")
+                first_two = ".".join(parts[:2]) if len(parts) >= 2 else ""
+                
+                if class_name.startswith(f"{app_package}.") or class_name == app_package:
+                    priority = 3
+                elif first_two and (class_name.startswith(f"{first_two}.") or class_name == first_two):
+                    priority = 2
+                else:
+                    priority = 1
+            else:
+                priority = 1
+                
+            if "[" in class_name:
+                priority = -1
+                
+            if search_param and priority >= 0:
+                simple_name = class_name.split(".")[-1]
+                if simple_name.lower().startswith(search_param.lower()) or class_name.lower().startswith(search_param.lower()):
+                    priority += 10
+                    
+            return priority
+            
+        classes.sort(key=lambda c: (-get_priority(c), c))
         return classes[offset:offset+limit]
 
     def count_instances(self, class_name):
@@ -151,6 +177,7 @@ class FridaBridge:
         if method == "listClasses":
             return self.list_classes(
                 search_param=params.get("search_param", ""),
+                app_package=params.get("app_package", ""),
                 offset=params.get("offset", 0),
                 limit=params.get("limit", 200)
             )

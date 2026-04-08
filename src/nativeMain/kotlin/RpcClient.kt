@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Serializable
 data class ListClassesParams(
     val search_param: String,
+    val app_package: String,
     val offset: Int,
     val limit: Int
 )
@@ -276,11 +277,11 @@ object RpcClient {
         }
     }
 
-    suspend fun listClasses(searchParam: String, offset: Int = 0, limit: Int = 200): Pair<List<String>?, String?> {
+    suspend fun listClasses(searchParam: String, appPackage: String, offset: Int = 0, limit: Int = 200): Pair<List<String>?, String?> {
         return try {
             val requestBody = JsonRpcRequestListClasses(
                 method = "listClasses",
-                params = ListClassesParams(searchParam, offset, limit)
+                params = ListClassesParams(searchParam, appPackage, offset, limit)
             )
 
             val response: HttpResponse = withTimeoutOrNull(5000) {

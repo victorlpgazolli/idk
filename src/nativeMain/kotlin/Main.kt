@@ -109,9 +109,8 @@ fun main(args: Array<String>) {
                     }
                     platform.posix.fclose(file)
                     val newLogs = lines.takeLast(10)
-                    if (newLogs != state.bridgeLogs) {
-                        state.bridgeLogs = newLogs
-                        // Trigger render somehow? Not strictly necessary if input loop ticks, but better safe.
+                    if (newLogs != state.bridgeLogs && newLogs != state.sharedBridgeLogs.value) {
+                        state.sharedBridgeLogs.value = newLogs
                     }
                 }
             }
@@ -350,6 +349,10 @@ fun main(args: Array<String>) {
                             }
                         }
                     }
+                } else if (state.mode == AppMode.DEBUG_ENTRYPOINT && (key.c == 'R' || key.c == 'r')) {
+                    val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
+                    platform.posix.system("if [ -f \"$pidFile\" ]; then kill -9 \$(cat \"$pidFile\") 2>/dev/null; rm \"$pidFile\"; fi")
+                    CommandExecutor.restartBridge(state, scope)
                 } else {
                     state.inputBuffer = state.inputBuffer.substring(0, state.cursorPosition) +
                             key.c +
@@ -773,6 +776,15 @@ fun main(args: Array<String>) {
             is KeyEvent.Timeout -> {
                 var needsRender = false
 
+                val updatedLogs = state.sharedBridgeLogs.value
+                if (updatedLogs != null) {
+                    state.sharedBridgeLogs.value = null
+                    state.bridgeLogs = updatedLogs
+                    if (state.mode == AppMode.DEBUG_ENTRYPOINT) {
+                        needsRender = true
+                    }
+                }
+
                 if (Terminal.resized) {
                     Terminal.resized = false
                     needsRender = true
@@ -855,7 +867,7 @@ fun main(args: Array<String>) {
                         needsRender = true
                         
                         scope.launch {
-                            val (res, err) = RpcClient.listClasses(state.lastSearchedParam, 0, 200)
+                            val (res, err) = RpcClient.listClasses(state.lastSearchedParam, state.appPackageName, 0, 200)
                             state.sharedFetchedClasses.value = res ?: emptyList()
                             state.sharedRpcError.value = err
                         }
