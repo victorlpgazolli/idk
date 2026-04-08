@@ -249,23 +249,26 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEBUG_CLASS_FILTER -> listOf(
                 FooterKey("↑↓", "Navigate"),
                 FooterKey("Enter", "Inspect"),
-                FooterKey("\\", "Count"),
-                FooterKey("S", if (state.showSyntheticClasses) "Hide Synth" else "Show Synth"),
+                FooterKey("\\", "Count Instances"),
+                FooterKey("]", if (state.showSyntheticClasses) "Hide Synthetic Classes" else "Show Synthetic Classes"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
             )
             AppMode.DEBUG_INSPECT_CLASS -> listOf(
-                FooterKey("H", "Hook"),
+                FooterKey("↑↓", "Navigate"),
+                FooterKey("H", "Hook Static Method"),
+                FooterKey("W", "Navigate to Watch Menu"),
                 FooterKey("I", "Inspect child"),
-                FooterKey("W", "Watch"),
+                FooterKey("E", "Edit Primitive Value"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
             )
             AppMode.DEBUG_HOOK_WATCH -> listOf(
-                FooterKey("Space", "Toggle"),
+                FooterKey("↑↓", "Navigate Hooked Methods"),
+                FooterKey("←→", "Scroll Logs"),
+                FooterKey("Space", "Toggle Hook"),
                 FooterKey("Del", "Remove"),
-                FooterKey("C", "Clear log"),
-                FooterKey("←→", "Scroll log"),
+                FooterKey("C", "Clear Logs"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
             )

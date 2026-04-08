@@ -227,7 +227,7 @@ fun main(args: Array<String>) {
                             Renderer.render(state)
                         }
                     }
-                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER && (key.c == 's' || key.c == 'S')) {
+                } else if (state.mode == AppMode.DEBUG_CLASS_FILTER && (key.c == ']')) {
                     state.showSyntheticClasses = !state.showSyntheticClasses
                     state.displayedClasses = CommandExecutor.sortClasses(state.allFetchedClasses, state.appPackageName, state.lastSearchedParam, state.showSyntheticClasses)
                     state.selectedClassIndex = if (state.displayedClasses.isNotEmpty()) 0 else -1
