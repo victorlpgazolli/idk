@@ -256,7 +256,7 @@ data class JsonRpcRequestSetFieldValue(
 )
 
 object RpcClient {
-    private val client = HttpClient(Darwin) {
+    var client: HttpClient = HttpClient(Darwin) {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true

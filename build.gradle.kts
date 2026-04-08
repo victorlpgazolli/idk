@@ -33,5 +33,12 @@ kotlin {
                 implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
             }
         }
+        val macosArm64Test by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation("io.ktor:ktor-client-mock:3.0.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+            }
+        }
     }
 }

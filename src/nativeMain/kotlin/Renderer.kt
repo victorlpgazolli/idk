@@ -135,15 +135,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
     }
 
-    private fun extractParams(signature: String): String {
-        val open  = signature.indexOf('(')
-        val close = signature.lastIndexOf(')')
-        if (open == -1 || close <= open + 1) return ""
-        return signature.substring(open + 1, close)
-            .split(',')
-            .joinToString(", ") { it.trim().substringAfterLast('.') }
-    }
-
     private fun ansiVisibleLength(text: String): Int {
         var count = 0
         var i = 0
@@ -709,7 +700,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         .append(countInfo).append(RESET).append("\n")
                 }
                 is InspectRow.StaticAttributeRow -> {
-                    val memberName = extractMemberName(row.attribute)
+                    val memberName = StringUtils.extractMemberName(row.attribute)
                     val isHooked   = state.activeHooks.any {
                         it.className == state.inspectTargetClassName && it.memberSignature == row.attribute
                     }
@@ -730,8 +721,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                         .append(hookedStr).append(RESET).append("\n")
                 }
                 is InspectRow.StaticMethodRow -> {
-                    val memberName = extractMemberName(row.method)
-                    val params     = extractParams(row.method)
+                    val memberName = StringUtils.extractMemberName(row.method)
+                    val params     = StringUtils.extractParams(row.method)
                     val isHooked   = state.activeHooks.any {
                         it.className == state.inspectTargetClassName && it.memberSignature == row.method
                     }
@@ -853,15 +844,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         ListRenderer.renderScrollIndicator(buf, startIdx, endIdx, rows.size, termWidth)
     }
 
-    private fun extractMemberName(signature: String): String {
-        // signature: "public static void com.pkg.Class.methodName(int, java.lang.String)"
-        // or "public static int com.pkg.Class.fieldName"
-        val beforeArgs = signature.split('(')[0].trim()
-        val parts = beforeArgs.split(' ')
-        val fullPath = parts.last()
-        return fullPath.split('.').last()
-    }
-
     private fun renderHookWatchMode(buf: StringBuilder, state: AppState, termWidth: Int, termHeight: Int) {
         // Header and breadcrumb are rendered by render() before this call.
         // Available height: total height minus header(2) + breadcrumb(2) + footer(1) = 5 lines overhead.
@@ -905,7 +887,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val selMark    = if (isSelected) "› " else "  "
                 val statusMark = if (hook.enabled) "[${Ansi.GREEN}✓${RESET}] " else "[ ] "
                 val color      = if (hook.type == HookType.METHOD) J_METHOD else C_PURPLE
-                val name       = extractMemberName(hook.memberSignature)
+                val name       = StringUtils.extractMemberName(hook.memberSignature)
                 val selColor   = if (isSelected) WHITE else DIM_GRAY
 
                 val cell = "$selColor$selMark$RESET$statusMark$color$name$RESET"
@@ -943,9 +925,9 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val lines = mutableListOf<String>()
 
         val time       = formatTime(event.timestamp)
-        var memberName = extractMemberName(event.target.memberSignature)
+        var memberName = StringUtils.extractMemberName(event.target.memberSignature)
         if (event.target.type == HookType.METHOD) {
-            val params = extractParams(event.target.memberSignature)
+            val params = StringUtils.extractParams(event.target.memberSignature)
             memberName += "($params)"
         }
         val instanceId = event.data["instanceId"] ?: event.data["handle"] ?: ""
@@ -1029,7 +1011,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             lines.add("$pad${C_BLUE}$className${RESET}${DIM_GRAY}$openChar${RESET}")
 
             // Split fields by ", " but be careful with nested braces
-            val fields = splitTopLevelCommas(body)
+            val fields = StringUtils.splitTopLevelCommas(body)
             fields.forEach { field ->
                 val eqIdx = field.indexOf('=')
                 if (eqIdx != -1) {
@@ -1060,30 +1042,6 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         // Primitive / string
         val truncated = if (value.length > maxWidth - indent) value.take(maxOf(0, maxWidth - indent - 3)) + "..." else value
         return listOf("$pad${C_MID_GRAY}$truncated${RESET}")
-    }
-
-    /**
-     * Splits a comma-separated string while ignoring commas inside braces/brackets.
-     */
-    private fun splitTopLevelCommas(s: String): List<String> {
-        val result  = mutableListOf<String>()
-        var depth   = 0
-        val current = StringBuilder()
-        for (ch in s) {
-            when (ch) {
-                '{', '[', '(' -> { depth++; current.append(ch) }
-                '}', ']', ')' -> { depth--; current.append(ch) }
-                ',' -> if (depth == 0) {
-                    result.add(current.toString().trim())
-                    current.clear()
-                } else {
-                    current.append(ch)
-                }
-                else -> current.append(ch)
-            }
-        }
-        if (current.isNotBlank()) result.add(current.toString().trim())
-        return result
     }
 
     private fun highlightJavaSignature(signature: String): String {
