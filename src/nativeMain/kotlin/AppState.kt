@@ -84,6 +84,7 @@ data class AppState(
     var displayedClasses: List<String> = emptyList(),
     var selectedClassIndex: Int = -1,
     var isFetchingClasses: Boolean = false,
+    var showSyntheticClasses: Boolean = false,
     var rpcError: String? = null,
     
     var instanceCounts: MutableMap<String, Int> = mutableMapOf(),
