@@ -32,8 +32,51 @@ function javaToString(obj) {
                 return obj.getClass().getSimpleName() + "[" + Java.use("java.lang.reflect.Array").getLength(obj) + "]";
             }
 
-            // For Java wrappers, String.valueOf is the most robust way to get the Java toString() output
-            return Java.use("java.lang.String").valueOf(obj);
+            var className = obj.getClass().getName();
+            var str = "";
+            try {
+                str = obj.toString();
+            } catch (e) {
+                str = "[Object@" + obj.hashCode().toString(16) + "]";
+            }
+
+            // If it's the default Object.toString() which contains '@' and starts with class name
+            if ((str.includes('@') && str.startsWith(className)) || str === "[object Object]") {
+                try {
+                    var currentClass = obj.getClass();
+                    var parts = [];
+                    var maxFields = 10;
+                    
+                    while (currentClass !== null && parts.length < maxFields) {
+                        var fields = currentClass.getDeclaredFields();
+                        for (var i = 0; i < fields.length && parts.length < maxFields; i++) {
+                            var f = fields[i];
+                            var modifiers = f.getModifiers();
+                            // Skip static fields
+                            if (!(modifiers & 0x00000008)) {
+                                f.setAccessible(true);
+                                var name = f.getName();
+                                try {
+                                    var val = f.get(obj);
+                                    var valStr = "null";
+                                    if (val !== null) {
+                                        if (val.$className) {
+                                            valStr = val.getClass().getSimpleName() + "@" + val.hashCode().toString(16);
+                                        } else {
+                                            valStr = String(val);
+                                        }
+                                    }
+                                    parts.push(name + "=" + valStr);
+                                } catch (e) {}
+                            }
+                        }
+                        currentClass = currentClass.getSuperclass();
+                    }
+                    return className + "{" + parts.join(", ") + (parts.length >= maxFields ? ", ..." : "") + "}";
+                } catch (fe) {}
+            }
+
+            return str;
         }
         if (typeof obj === 'object') {
             return JSON.stringify(obj);

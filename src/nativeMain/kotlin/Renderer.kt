@@ -125,10 +125,14 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val fullName = state.inspectTargetClassName
         val lastDot  = fullName.lastIndexOf('.')
         val pkg      = if (lastDot != -1) fullName.substring(0, lastDot) else ""
+        val name     = if (lastDot != -1) fullName.substring(lastDot + 1) else fullName
+
+        buf.append(" ").append(WHITE).append(name).append(RESET)
         if (pkg.isNotEmpty()) {
-            buf.append(" ").append(DIM_GRAY).append(pkg).append(RESET).append("\n")
-            buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
+            buf.append(" ").append(DIM_GRAY).append("(").append(pkg).append(")").append(RESET)
         }
+        buf.append("\n")
+        buf.append(C_SEP).append("─".repeat(termWidth)).append(RESET).append("\n")
     }
 
     private fun extractParams(signature: String): String {
@@ -246,7 +250,8 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 FooterKey("Ctrl+C", "Quit")
             )
             AppMode.DEBUG_HOOK_WATCH -> listOf(
-                FooterKey("D", "Remove hook"),
+                FooterKey("Space", "Toggle"),
+                FooterKey("Del", "Remove"),
                 FooterKey("C", "Clear log"),
                 FooterKey("Esc", "Back"),
                 FooterKey("Ctrl+C", "Quit")
@@ -814,12 +819,13 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 val hook       = activeHooksList[y]
                 val isSelected = y == state.selectedHookIndex
                 val selMark    = if (isSelected) "› " else "  "
+                val statusMark = if (hook.enabled) "[${Ansi.GREEN}✓${RESET}] " else "[ ] "
                 val color      = if (hook.type == HookType.METHOD) J_METHOD else C_PURPLE
                 val name       = extractMemberName(hook.memberSignature)
                 val selColor   = if (isSelected) WHITE else DIM_GRAY
 
-                val cell = "$selColor$selMark$color$name$RESET"
-                val visLen = 2 + name.length
+                val cell = "$selColor$selMark$statusMark$color$name$RESET"
+                val visLen = 2 + 4 + name.length // 2 (selMark) + 4 ("[✓] ") + name
                 buf.append(cell)
                 buf.append(" ".repeat(maxOf(0, leftWidth - visLen)))
             } else {
@@ -883,7 +889,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 lines.add(header)
 
                 // Args
-                if (args.isNotEmpty()) {
+                if (args.isNotEmpty() && args != "{}") {
                     lines.add("  ${DIM_GRAY}args:${RESET}")
                     val argList = args.split(",").map { it.trim() }
                     argList.forEach { arg ->
@@ -893,9 +899,11 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
                 }
 
                 // Return value
-                lines.add("  ${DIM_GRAY}returned:${RESET}")
-                val retLines = formatValue(ret, 4, maxWidth)
-                lines.addAll(retLines)
+                if (ret != "void" && ret.isNotEmpty()) {
+                    lines.add("  ${DIM_GRAY}returned:${RESET}")
+                    val retLines = formatValue(ret, 4, maxWidth)
+                    lines.addAll(retLines)
+                }
             }
         }
 
