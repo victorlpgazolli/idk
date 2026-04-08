@@ -266,6 +266,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
             AppMode.DEBUG_HOOK_WATCH -> listOf(
                 FooterKey("↑↓", "Navigate Hooked Methods"),
                 FooterKey("←→", "Scroll Logs"),
+                FooterKey("I", "Inspect Class"),
                 FooterKey("Space", "Toggle Hook"),
                 FooterKey("Del", "Remove"),
                 FooterKey("C", "Clear Logs"),
