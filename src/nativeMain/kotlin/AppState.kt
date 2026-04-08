@@ -81,6 +81,7 @@ data class AppState(
     var lastSearchedParam: String = "",
     val sharedFetchedClasses: AtomicReference<List<String>?> = AtomicReference(null),
     val sharedRpcError: AtomicReference<String?> = AtomicReference(null),
+    var allFetchedClasses: List<String> = emptyList(),
     var displayedClasses: List<String> = emptyList(),
     var selectedClassIndex: Int = -1,
     var isFetchingClasses: Boolean = false,
