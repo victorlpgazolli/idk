@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDK - Interactive Debug Kit</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+    <div class="container">
+        <h1>Interactive Debug Kit</h1>
+        <p>Low-latency Android JVM Instrumentation through Native TUI</p>
+        <div class="placeholder-img">IMAGEM_AQUI_1</div>
+    </div>
+</header>
+
+<section id="capabilities">
+    <div class="container">
+        <h2>Core Capabilities</h2>
+        <div class="grid">
+            <div class="card">
+                <h3>Class Discovery</h3>
+                <p>Real-time enumeration of loaded classes with advanced filtering for package hierarchies and synthetic classes.</p>
+            </div>
+            <div class="card">
+                <h3>Deep Inspection</h3>
+                <p>Recursive traversal of object hierarchies, live memory tracking, and dynamic field modification at runtime.</p>
+            </div>
+            <div class="card">
+                <h3>Method Hooking</h3>
+                <p>High-performance interception framework for execution flow monitoring and parameter/return value capture.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="pipeline">
+    <div class="container">
+        <h2>Technological Pipeline</h2>
+        <div class="pipeline">
+            <div class="step">JDWP Bootstrap</div>
+            <div class="arrow">&rarr;</div>
+            <div class="step">JSON-RPC Bridge</div>
+            <div class="arrow">&rarr;</div>
+            <div class="step">In-Process Agent</div>
+            <div class="arrow">&rarr;</div>
+            <div class="step">Native TUI Synthesis</div>
+        </div>
+        <div class="placeholder-img">IMAGEM_AQUI_2</div>
+    </div>
+</section>
+
+<section id="distribution">
+    <div class="container">
+        <h2>Distribution</h2>
+        <div class="tabs">
+            <ul class="tab-list">
+                <li class="tab-item active" data-tab="brew">Brew</li>
+                <li class="tab-item" data-tab="standalone">Standalone</li>
+            </ul>
+            <div id="brew" class="tab-content active">
+                <p>Install via Homebrew on macOS:</p>
+                <pre><code>brew tap victorgazolli/idk
+brew install idk</code></pre>
+            </div>
+            <div id="standalone" class="tab-content">
+                <p>Download the pre-compiled binary for macOS ARM64 from GitHub Releases.</p>
+                <pre><code>chmod +x idk
+./idk</code></pre>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <p>&copy; 2026 Interactive Debug Kit Project. Professional Edition.</p>
+    </div>
+</footer>
+
+<script>
+    document.querySelectorAll('.tab-item').forEach(item => {
+        item.addEventListener('click', () => {
+            // Remove active classes
+            document.querySelectorAll('.tab-item').forEach(i => i.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // Add active class to current tab
+            item.classList.add('active');
+            document.getElementById(item.getAttribute('data-tab')).classList.add('active');
+        });
+    });
+</script>
+
+</body>
+</html>
