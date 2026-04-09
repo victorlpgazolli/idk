@@ -5,19 +5,9 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      run-linux:
-        description: 'Run Linux build'
-        required: false
-        default: true
-      run-macos:
-        description: 'Run macOS build'
-        required: false
-        default: true
 
 jobs:
   build-macos:
-    if: ${{ github.event.inputs.run-macos == 'true' }}
     name: Build macOS ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -73,7 +63,6 @@ jobs:
             idk-macos-${{ matrix.target }}-bridge
 
   build-linux:
-    if: ${{ github.event.inputs.run-linux == 'true' }}
     name: Build Linux ${{ matrix.target }}
     runs-on: ubuntu-24.04
     strategy:
