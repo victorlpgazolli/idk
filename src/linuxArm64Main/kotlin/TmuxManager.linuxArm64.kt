@@ -1,2 +1,2 @@
 
-actual val binaryPath: String = "./build/bin/linuxArm64/debugExecutable/idk.kexe"
+actual val binaryPath: String = getBinaryPath("linuxArm64")

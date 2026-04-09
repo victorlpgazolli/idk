@@ -99,8 +99,7 @@ object CommandExecutor {
             return "./idk-bridge$serialArg"
         }
 
-        val idkDevEnv = getenv("IDK_DEVELOPMENT")?.toKString()
-        if (idkDevEnv.isNullOrEmpty()) {
+        if (isDevelopmentEnvironment.not()) {
             throw RuntimeException("idk-bridge not found in: \$PATH, \$IDK_BRIDGE_PATH or locally ./idk-bridge")
         }
         // 4. Fallback to development mode
