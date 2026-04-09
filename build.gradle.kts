@@ -41,6 +41,14 @@ kotlin {
             }
         }
     }
+    linuxX64 {
+        binaries {
+            executable {
+                entryPoint = "main"
+                baseName = "idk"
+            }
+        }
+    }
 
 
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi::class)
@@ -58,19 +66,27 @@ kotlin {
                 implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
             }
         }
-        val unixArm64Main by creating {
+        val unixMain by creating {
             dependsOn(commonMain)
         }
 
-        val linuxArm64Main by getting {
-            dependsOn(unixArm64Main)
+        val linuxMain by creating {
+            dependsOn(unixMain)
             dependencies {
-                implementation("io.ktor:ktor-client-curl-linuxarm64:3.0.0")
+                implementation("io.ktor:ktor-client-curl:3.0.0")
             }
         }
 
+        val linuxArm64Main by getting {
+            dependsOn(linuxMain)
+        }
+
+        val linuxX64Main by getting {
+            dependsOn(linuxMain)
+        }
+
         val macosArm64Main by getting {
-            dependsOn(unixArm64Main)
+            dependsOn(unixMain)
             dependencies {
                 implementation("io.ktor:ktor-client-darwin:3.0.0")
             }
