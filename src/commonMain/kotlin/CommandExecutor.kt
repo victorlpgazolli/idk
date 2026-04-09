@@ -1,10 +1,15 @@
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import platform.posix.F_OK
+import platform.posix.access
+import platform.posix.getenv
 import platform.posix.localtime
 import platform.posix.system
 import platform.posix.time
