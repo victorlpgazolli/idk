@@ -36,9 +36,6 @@ jobs:
       - name: Install dependencies
         run: make install_dependencies
 
-      - name: Compile
-        run: make compile
-
       - name: Release
         run: make release
 
@@ -86,9 +83,6 @@ jobs:
 
       - name: Install dependencies
         run: make install_dependencies
-
-      - name: Compile
-        run: make compile
 
       - name: Release
         run: make release

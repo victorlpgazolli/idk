@@ -17,7 +17,7 @@ VENV       := bridge/venv
 PIP        := $(VENV)/bin/pip
 PYTHON     := $(abspath $(VENV)/bin/python)
 
-.PHONY: install_dependencies compile release
+.PHONY: install_dependencies compile prepare_release release
 
 install_dependencies:
 ifeq ($(OS),Darwin)
@@ -40,7 +40,9 @@ else ifeq ($(OS),Linux)
 endif
 	./gradlew $(GRADLE_TARGET)
 
-release:
+release: compile prepare_release
+
+prepare_release:
 	mkdir -p dist
 	cp $(TUI_BIN) dist/idk
 	cp $(BRIDGE_BIN) dist/idk-bridge
