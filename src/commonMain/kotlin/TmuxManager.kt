@@ -18,13 +18,13 @@ object TmuxManager {
 
     fun createSession(name: String): Boolean {
         if (!checkTmux()) return false
-        val exitCode = system("tmux new-session -d -s $name ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_entrypoint 2>/dev/null")
+        val exitCode = system("tmux new-session -d -s $name $binaryPath --mode debug_entrypoint 2>/dev/null")
         return exitCode == 0
     }
 
     fun appendInspectWindow(className: String): Boolean {
         if (!checkTmux()) return false
-        val exitCode = system("tmux split-window -h -p 70 ./build/bin/macosArm64/debugExecutable/idk.kexe --mode debug_inspect_class $className 2>/dev/null")
+        val exitCode = system("tmux split-window -h -p 70 $binaryPath --mode debug_inspect_class $className 2>/dev/null")
         return exitCode == 0
     }
 
@@ -44,3 +44,5 @@ object TmuxManager {
         return exitCode == 0
     }
 }
+
+expect val binaryPath: String

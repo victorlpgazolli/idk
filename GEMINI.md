@@ -88,7 +88,7 @@ Frida requests must have `encodeDefaults = true` in the Kotlin JSON configuratio
 
 | Problem | Solution |
 |---|---------|
-| `TIOCGWINSZ` not found | Hardcode `0x40087468u` for macOS ARM64 terminal size ioctl. |
+| `TIOCGWINSZ` value | macOS (0x40087468u) vs Linux (0x5413u) handled in `Terminal.getSize()`. |
 | `Runtime.getRuntime()` | JVM-only API — use POSIX equivalents or Frida `Java.perform`. |
 | Cursor flickering | Use `CLEAR_SCREEN` only at the start of frame and ensure total output height ≤ terminal height. |
 | Duplicate instances | Frida's `Java.choose` can yield same object multiple times; deduplicate via `$handle` in `agent.js`. |

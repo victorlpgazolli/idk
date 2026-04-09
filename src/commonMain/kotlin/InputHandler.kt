@@ -46,7 +46,7 @@ object InputHandler {
             3 -> KeyEvent.CtrlC
             5 -> KeyEvent.CtrlE // Ctrl-E
             9 -> KeyEvent.Tab
-            13 -> KeyEvent.Enter
+            10, 13 -> KeyEvent.Enter
             21 -> KeyEvent.CmdBackspace // Ctrl-U
             23 -> KeyEvent.OptionBackspace // Ctrl-W
             127 -> KeyEvent.Backspace

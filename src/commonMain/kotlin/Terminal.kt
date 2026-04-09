@@ -67,7 +67,7 @@ object Terminal {
     fun getSize(): Pair<Int, Int> {
         memScoped {
             val ws = alloc<winsize>()
-            ioctl(STDIN_FILENO, 0x40087468u, ws.ptr)
+            ioctl(STDIN_FILENO, TIOCGWINSZ, ws.ptr)
             val cols = ws.ws_col.toInt()
             val rows = ws.ws_row.toInt()
             return Pair(if (cols > 0) cols else 80, if (rows > 0) rows else 24)
@@ -79,4 +79,5 @@ object Terminal {
     }
 }
 
+expect val TIOCGWINSZ: ULong
 expect fun termios.enableRawModePlatformFlags()
