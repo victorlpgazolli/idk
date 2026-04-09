@@ -20,15 +20,19 @@ EOF
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gcc-aarch64-linux-gnu \
+    libcurl4-openssl-dev:arm64 \
     libssl-dev:arm64 \
     libssh-dev:arm64 \
-    libcurl4-openssl-dev:arm64 \
-    libkrb5-dev:arm64 \
-    libgssapi-krb5-2:arm64 \
-    libidn2-dev:arm64 \
-    libpsl-dev:arm64 \
-    libzstd-dev:arm64 \
     libbrotli-dev:arm64 \
+    libkrb5-dev:arm64 \
+    libidn2-dev:arm64 \
+    libldap-dev:arm64 \
+    libnghttp2-dev:arm64 \
+    libpsl-dev:arm64 \
+    librtmp-dev:arm64 \
+    libzstd-dev:arm64 \
+    zlib1g-dev:arm64 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV GRADLE_USER_HOME=/cache/gradle

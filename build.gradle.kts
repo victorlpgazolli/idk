@@ -23,13 +23,20 @@ kotlin {
                 baseName = "idk"
                 linkerOpts(
                     "-L/usr/lib/aarch64-linux-gnu",
+                    "-L/usr/lib/gcc-cross/aarch64-linux-gnu/13",
+                    "--allow-shlib-undefined",
                     "-lssl", "-lcrypto",
                     "-lssh",
+                    "-lbrotlidec",
                     "-lgssapi_krb5",
                     "-lidn2",
+                    "-lldap", "-llber",
+                    "-lnghttp2",
                     "-lpsl",
+                    "-lrtmp",
                     "-lzstd",
-                    "-lbrotlidec"
+                    "-lz",
+                    "/usr/lib/gcc-cross/aarch64-linux-gnu/13/libgcc.a"
                 )
             }
         }
