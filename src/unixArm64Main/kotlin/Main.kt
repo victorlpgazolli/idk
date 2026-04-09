@@ -743,12 +743,8 @@ fun main(args: Array<String>) {
                     }
                 } else {
                     val prevMode = state.popMode()
-                    if (prevMode == null) {
-                        if (state.startedAsInspectPane) {
-                            state.running = false
-                        } else {
-                            state.mode = AppMode.DEBUG_ENTRYPOINT
-                        }
+                    if (prevMode == null && state.startedAsInspectPane) {
+                        state.running = false
                     }
                     Renderer.render(state)
                 }
@@ -824,6 +820,7 @@ fun main(args: Array<String>) {
                             
                             Renderer.render(state)
                             CommandExecutor.proceedWithTmux(state)
+                            state.mode = AppMode.DEBUG_ENTRYPOINT
                             needsRender = true
                         }
                     }
