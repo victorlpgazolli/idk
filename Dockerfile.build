@@ -1,23 +1,27 @@
-FROM --platform=linux/amd64 eclipse-temurin:21-jdk-noble
+FROM eclipse-temurin:21-jdk-noble
 
 COPY scripts/setup_linux_arm64_deps.sh /tmp/setup_linux_arm64_deps.sh
 RUN bash /tmp/setup_linux_arm64_deps.sh
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    openjdk-17-jdk \
+    adb \
+    npm \
+    tmux \
+    make \
+    python3 \
+    libcurl4t64 \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV GRADLE_USER_HOME=/cache/gradle
 ENV KONAN_DATA_DIR=/cache/konan
 
-WORKDIR /project
+WORKDIR /app
 
 COPY gradlew gradlew.bat ./
 COPY gradle/ gradle/
 COPY build.gradle.kts settings.gradle.kts gradle.properties ./
 
-RUN ./gradlew dependencies --no-daemon -q 2>/dev/null || true
+RUN ./gradlew dependencies --no-daemon -q >/dev/null 2>&1
 
 COPY src/ src/
-
-CMD ["./gradlew", "linuxArm64Binaries", "--no-daemon"]
-
-FROM --platform=linux/arm64 ubuntu:noble AS runner
-RUN apt-get update && apt-get install -y --no-install-recommends adb tmux libcurl4t64 && rm -rf /var/lib/apt/lists/*
-WORKDIR /app

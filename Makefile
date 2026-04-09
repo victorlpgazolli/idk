@@ -17,7 +17,7 @@ VENV       := bridge/venv
 PIP        := $(VENV)/bin/pip
 PYTHON     := $(abspath $(VENV)/bin/python)
 
-.PHONY: install_dependencies compile prepare_release release
+.PHONY: install_dependencies compile prepare_release release run run_docker
 
 install_dependencies:
 ifeq ($(OS),Darwin)
@@ -29,18 +29,16 @@ endif
 
 compile:
 	cd bridge && npx frida-compile agent.js -o agent.bundle.js -c
-ifeq ($(OS),Darwin)
 	cd bridge && $(PYTHON) -m PyInstaller bridge.spec
-else ifeq ($(OS),Linux)
-	docker run --rm --platform linux/arm64 \
-	    -v "$(BRIDGE_DIR)":/bridge \
-	    -w /bridge \
-	    python:3.11-slim \
-	    bash -c "apt-get update && apt-get install -y --no-install-recommends binutils && pip install pyinstaller frida && pyinstaller bridge.spec"
-endif
 	./gradlew $(GRADLE_TARGET)
 
 release: compile prepare_release
+
+run_docker:
+	./start_docker.sh
+
+run:
+	./dist/idk
 
 prepare_release:
 	mkdir -p dist

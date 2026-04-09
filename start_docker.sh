@@ -1,4 +1,4 @@
-docker build -f Dockerfile.build --target runner -t idk-runner .
+docker build -f Dockerfile.build -t idk-runner .
 
 docker run -it \
     -v $(pwd):/app \
