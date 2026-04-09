@@ -5,19 +5,9 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      run-linux:
-        description: 'Run Linux build'
-        required: false
-        default: true
-      run-macos:
-        description: 'Run macOS build'
-        required: false
-        default: true
 
 jobs:
   build-macos:
-    if: ${{ github.event.inputs.run-macos == 'true' }}
     name: Build macOS ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -73,7 +63,6 @@ jobs:
             idk-macos-${{ matrix.target }}-bridge
 
   build-linux:
-    if: ${{ github.event.inputs.run-linux == 'true' }}
     name: Build Linux ${{ matrix.target }}
     runs-on: ubuntu-24.04
     strategy:
@@ -136,7 +125,7 @@ jobs:
           docker run --rm --platform linux/arm64 \
             -v ${{ github.workspace }}:/app -w /app \
             python:3.11-slim \
-            bash -c "apt update && apt install -y binutils && make install_dependencies && make compile_bridge"
+            bash -c "apt-get update && apt-get install -y binutils && pip install -r bridge/requirements.txt && cd bridge && pyinstaller bridge.spec"
 
       - name: Package Artifacts
         run: |
