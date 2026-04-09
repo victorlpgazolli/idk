@@ -1,12 +1,11 @@
 import kotlinx.cinterop.refTo
 import kotlinx.cinterop.toKString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import platform.posix.fclose
 import platform.posix.fgets
 import platform.posix.fopen
 import platform.posix.fputs
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 
 object HookStore {
     private fun filePath(packageName: String): String {
@@ -19,19 +18,19 @@ object HookStore {
         CacheManager.ensureCacheDir()
         val path = filePath(packageName)
         val file = fopen(path, "r") ?: return emptySet()
-        
+
         val sb = StringBuilder()
         val buffer = ByteArray(4096)
         while (fgets(buffer.refTo(0), buffer.size, file) != null) {
             sb.append(buffer.toKString())
         }
         fclose(file)
-        
+
         val content = sb.toString().trim()
         if (content.isEmpty()) return emptySet()
-        
+
         return try {
-            Json.decodeFromString<Set<HookTarget>>(content)
+            Json.Default.decodeFromString<Set<HookTarget>>(content)
         } catch (e: Exception) {
             emptySet()
         }
@@ -42,7 +41,7 @@ object HookStore {
         CacheManager.ensureCacheDir()
         val path = filePath(packageName)
         val file = fopen(path, "w") ?: return
-        
+
         val json = Json { prettyPrint = true }
         val content = json.encodeToString(hooks)
         fputs(content, file)

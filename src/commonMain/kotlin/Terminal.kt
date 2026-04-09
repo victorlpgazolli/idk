@@ -1,31 +1,31 @@
+import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.sizeOf
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.set
+import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.staticCFunction
-import platform.posix.SIGWINCH
-import platform.posix.signal
+import kotlinx.cinterop.usePinned
 import platform.posix.ECHO
 import platform.posix.ICANON
 import platform.posix.ICRNL
-import platform.posix.ISIG
 import platform.posix.IEXTEN
+import platform.posix.ISIG
 import platform.posix.IXON
+import platform.posix.SIGWINCH
 import platform.posix.STDIN_FILENO
 import platform.posix.TCSAFLUSH
 import platform.posix.VMIN
 import platform.posix.VTIME
+import platform.posix.fflush
+import platform.posix.ioctl
+import platform.posix.memcpy
+import platform.posix.signal
+import platform.posix.stdout
 import platform.posix.tcgetattr
 import platform.posix.tcsetattr
 import platform.posix.termios
-import platform.posix.memcpy
 import platform.posix.winsize
-import platform.posix.ioctl
-import platform.posix.fflush
-import platform.posix.stdout
 
 object Terminal {
     private val savedBytes = ByteArray(sizeOf<termios>().toInt())
@@ -43,16 +43,14 @@ object Terminal {
             val raw = alloc<termios>()
             memcpy(raw.ptr, orig.ptr, sizeOf<termios>().toULong())
 
-            raw.c_iflag = raw.c_iflag and (ICRNL or IXON).toULong().inv()
-            raw.c_lflag = raw.c_lflag and (ECHO or ICANON or ISIG or IEXTEN).toULong().inv()
-            raw.c_cc[VMIN] = 0u
+            raw.enableRawModePlatformFlags()
             raw.c_cc[VTIME] = 1u
 
             tcsetattr(STDIN_FILENO, TCSAFLUSH, raw.ptr)
         }
 
         signal(SIGWINCH, staticCFunction<Int, Unit> { _ ->
-            Terminal.resized = true
+            resized = true
         })
     }
 
@@ -80,3 +78,5 @@ object Terminal {
         fflush(stdout)
     }
 }
+
+expect fun termios.enableRawModePlatformFlags()

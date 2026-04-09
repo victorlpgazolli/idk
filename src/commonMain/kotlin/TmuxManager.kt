@@ -31,8 +31,8 @@ object TmuxManager {
     fun attachSession(name: String) {
         if (!checkTmux()) return
         Terminal.disableRawMode()
-        print(Ansi.SHOW_CURSOR)
-        print(Ansi.RESET)
+//        print(Ansi.SHOW_CURSOR)
+//        print(Ansi.RESET)
         Terminal.flush()
         system("tmux attach-session -t $name 2>/dev/null")
         Terminal.enableRawMode()
