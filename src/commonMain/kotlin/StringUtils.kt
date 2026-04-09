@@ -1,3 +1,5 @@
+import kotlin.text.iterator
+
 object StringUtils {
     fun extractParams(signature: String): String {
         val open  = signature.indexOf('(')

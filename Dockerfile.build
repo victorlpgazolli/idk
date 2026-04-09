@@ -1,0 +1,47 @@
+FROM --platform=linux/amd64 eclipse-temurin:21-jdk-noble
+
+# Add arm64 architecture and configure apt sources
+RUN dpkg --add-architecture arm64 && \
+    # Handle DEB822 format (/etc/apt/sources.list.d/*.sources)
+    if ls /etc/apt/sources.list.d/*.sources 2>/dev/null; then \
+        for f in /etc/apt/sources.list.d/*.sources; do \
+            sed -i '/^Architectures:/d' "$f"; \
+            sed -i '/^Types:/a Architectures: amd64' "$f"; \
+        done; \
+    fi && \
+    # Handle legacy format (/etc/apt/sources.list)
+    sed -i 's/^deb http/deb [arch=amd64] http/g' /etc/apt/sources.list 2>/dev/null || true && \
+    # Add arm64 sources from ports.ubuntu.com
+    cat >> /etc/apt/sources.list.d/arm64-ports.list << 'EOF'
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse
+EOF
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libssl-dev:arm64 \
+    libssh-dev:arm64 \
+    libcurl4-openssl-dev:arm64 \
+    libkrb5-dev:arm64 \
+    libgssapi-krb5-2:arm64 \
+    libidn2-dev:arm64 \
+    libpsl-dev:arm64 \
+    libzstd-dev:arm64 \
+    libbrotli-dev:arm64 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV GRADLE_USER_HOME=/cache/gradle
+ENV KONAN_DATA_DIR=/cache/konan
+
+WORKDIR /project
+
+COPY gradlew gradlew.bat ./
+COPY gradle/ gradle/
+COPY build.gradle.kts settings.gradle.kts gradle.properties ./
+
+RUN ./gradlew dependencies --no-daemon -q 2>/dev/null || true
+
+COPY src/ src/
+
+CMD ["./gradlew", "linuxArm64Binaries", "--no-daemon"]

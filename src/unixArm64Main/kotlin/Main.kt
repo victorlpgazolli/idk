@@ -1,23 +1,10 @@
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
+
 import kotlinx.cinterop.refTo
 import kotlinx.cinterop.toKString
-import platform.posix.gettimeofday
-import platform.posix.timeval
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-
-fun currentTimeMillis(): Long {
-    memScoped {
-        val tv = alloc<timeval>()
-        gettimeofday(tv.ptr, null)
-        return tv.tv_sec * 1000L + tv.tv_usec / 1000L
-    }
-}
 
 fun onInputChanged(state: AppState, resetCtrlC: Boolean = true) {
     if (resetCtrlC) state.ctrlCPressed = false
