@@ -19,5 +19,5 @@ COPY src/ src/
 CMD ["./gradlew", "linuxArm64Binaries", "--no-daemon"]
 
 FROM --platform=linux/arm64 ubuntu:noble AS runner
-RUN apt-get update && apt-get install -y --no-install-recommends tmux libcurl4t64 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends adb tmux libcurl4t64 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
