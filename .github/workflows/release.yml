@@ -44,12 +44,9 @@ jobs:
 
       - name: Package Artifacts
         run: |
-          mkdir -p staging
-          cp dist/idk staging/idk
-          cp dist/idk-bridge staging/idk-bridge
-          cd staging && zip -r ../idk-macos-arm64.zip .
-          cp dist/idk idk-tui-macos-arm64
-          cp dist/idk-bridge idk-bridge-macos-arm64
+          zip -r ./idk-macos-arm64.zip ./dist
+          cp dist/idk idk-macos-arm64-tui
+          cp dist/idk-bridge idk-macos-arm64-bridge
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
@@ -57,8 +54,8 @@ jobs:
           name: macos-arm64
           path: |
             idk-macos-arm64.zip
-            idk-tui-macos-arm64
-            idk-bridge-macos-arm64
+            idk-macos-arm64-tui
+            idk-macos-arm64-bridge
 
   build-linux-arm64:
     name: Build Linux ARM64
@@ -98,12 +95,9 @@ jobs:
 
       - name: Package Artifacts
         run: |
-          mkdir -p staging
-          cp dist/idk staging/idk
-          cp dist/idk-bridge staging/idk-bridge
-          cd staging && zip -r ../idk-linux-arm64.zip .
-          cp dist/idk idk-tui-linux-arm64
-          cp dist/idk-bridge idk-bridge-linux-arm64
+          zip -r ./idk-linux-arm64.zip ./dist
+          cp dist/idk idk-linux-arm64-tui
+          cp dist/idk-bridge idk-linux-arm64-bridge
 
       - name: Upload Linux ARM64 Artifacts
         uses: actions/upload-artifact@v4
@@ -111,8 +105,8 @@ jobs:
           name: linux-arm64
           path: |
             idk-linux-arm64.zip
-            idk-tui-linux-arm64
-            idk-bridge-linux-arm64
+            idk-linux-arm64-tui
+            idk-linux-arm64-bridge
 
   publish-artifacts:
     name: Publish Artifacts to GitHub Release
@@ -141,10 +135,10 @@ jobs:
             --title "Release ${{ github.ref_name }}" \
             --generate-notes \
             idk-macos-arm64.zip \
-            idk-tui-macos-arm64 \
-            idk-bridge-macos-arm64 \
+            idk-macos-arm64-tui \
+            idk-macos-arm64-bridge \
             idk-linux-arm64.zip \
-            idk-tui-linux-arm64 \
-            idk-bridge-linux-arm64
+            idk-linux-arm64-tui \
+            idk-linux-arm64-bridge
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

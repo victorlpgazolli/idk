@@ -36,7 +36,7 @@ else ifeq ($(OS),Linux)
 	    -v "$(BRIDGE_DIR)":/bridge \
 	    -w /bridge \
 	    python:3.11-slim \
-	    bash -c "pip install pyinstaller frida && pyinstaller bridge.spec"
+	    bash -c "apt-get update && apt-get install -y --no-install-recommends binutils && pip install pyinstaller frida && pyinstaller bridge.spec"
 endif
 	./gradlew $(GRADLE_TARGET)
 
