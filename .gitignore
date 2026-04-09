@@ -72,3 +72,6 @@ kotlin-ide/
 # gradlew.bat
 __pycache__
 .worktrees/
+dist
+venv
+*bundle.js

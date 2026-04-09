@@ -6,15 +6,16 @@ python3 -m venv venv
 source venv/bin/activate
 
 echo "Installing build dependencies..."
-# Bundle the Frida agent
-npm install
-npx frida-compile agent.js -c -B iife -o agent.bundle.js
 
-pip install --upgrade pip
-pip install pyinstaller frida
+python3 -m pip install --upgrade pip
+python3 -m pip install pyinstaller frida
+npm ci
+
+echo "Creating bundle of agent.js..."
+npx frida-compile agent.js -o agent.bundle.js -c
 
 echo "Running PyInstaller..."
-pyinstaller bridge.spec
+python3 -m PyInstaller bridge.spec
 
 echo "Build complete. Binary available at dist/idk-bridge"
 deactivate
