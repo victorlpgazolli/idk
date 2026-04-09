@@ -1,11 +1,5 @@
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.pointed
-import platform.posix.localtime
-import platform.posix.time
-import platform.posix.time_tVar
-
+import kotlinx.cinterop.*
+import platform.posix.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -61,12 +55,30 @@ object CommandExecutor {
         }
     }
 
+    @OptIn(ExperimentalForeignApi::class)
+    private fun getBridgeCommand(serialArg: String): String {
+        // 1. Check environment variable
+        val envPath = getenv("IDK_BRIDGE_PATH")?.toKString()
+        if (!envPath.isNullOrEmpty()) {
+            return "$envPath$serialArg"
+        }
+
+        // 2. Check current working directory
+        if (access("./idk-bridge", F_OK) == 0) {
+            return "./idk-bridge$serialArg"
+        }
+
+        // 3. Fallback to development mode
+        return "python3 ./bridge/bridge.py$serialArg"
+    }
+
     fun restartBridge(state: AppState, scope: CoroutineScope) {
         state.bridgeLogs = emptyList()
         val logFile = "${CacheManager.cacheDir()}/bridge.log"
         val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
         val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-        platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+        val bridgeCmd = getBridgeCommand(serialArg)
+        platform.posix.system("$bridgeCmd > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
     }
 
     fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = "", showSynthetic: Boolean = false): List<String> {
@@ -159,10 +171,7 @@ object CommandExecutor {
             state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE, null)
             
             if (!RpcClient.ping()) {
-                val logFile = "${CacheManager.cacheDir()}/bridge.log"
-                val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
-                val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-                platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+                restartBridge(state, scope)
             }
 
             var bridgeReady = false
@@ -208,4 +217,3 @@ object CommandExecutor {
         }
     }
 }
-

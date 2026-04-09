@@ -8,9 +8,21 @@ import logging
 import threading
 import subprocess
 import argparse
+import os
+import sys
 from jdwp_frida import run_jdwp
 
 logging.basicConfig(level=logging.INFO)
+
+def get_resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    return os.path.join(base_path, relative_path)
 
 class RpcHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -78,18 +90,33 @@ class FridaBridge:
         self._lock = threading.Lock()
 
     def _get_device(self):
-        if not self.device:
+        try:
             if self.serial:
                 logging.info(f"Targeting specific device serial: {self.serial}")
-                self.device = frida.get_device_manager().get_device(self.serial, timeout=2)
+                return frida.get_device(self.serial, timeout=2)
             else:
-                self.device = frida.get_usb_device(timeout=2)
-        return self.device
+                return frida.get_usb_device(timeout=2)
+        except Exception as e:
+            raise Exception(f"Failed to find device: {e}")
+
+    def _get_front_app(self, device):
+        retries = 3
+        last_err = None
+        for i in range(retries):
+            try:
+                return device.get_frontmost_application()
+            except Exception as e:
+                last_err = e
+                logging.warning(f"Failed to get frontmost app (attempt {i+1}/{retries}): {e}")
+                time.sleep(0.5)
+                # Force a new device reference on retry
+                device = self._get_device()
+        raise Exception(f"Could not get frontmost app after {retries} attempts. Last error: {last_err}")
 
     def get_session(self):
         with self._lock:
             device = self._get_device()
-            front_app = device.get_frontmost_application()
+            front_app = self._get_front_app(device)
             if not front_app:
                 raise Exception("No frontmost application found on device")
             
@@ -104,14 +131,13 @@ class FridaBridge:
             self.session = device.attach(front_app.pid)
             self.session._pid = front_app.pid
 
-            import os
-            agent_path = os.path.join(os.path.dirname(__file__), 'agent.js')
-            logging.info("Compiling Frida agent...")
-            compiler = frida.Compiler()
-            compiler.on('diagnostics', lambda diag: logging.warning(f"Compiler: {diag}"))
-            bundle = compiler.build(agent_path)
+            agent_path = get_resource_path('agent.bundle.js')
+            logging.info(f"Loading Frida agent from: {agent_path}")
+            
+            with open(agent_path, 'r', encoding='utf-8') as f:
+                source = f.read()
 
-            self.script = self.session.create_script(bundle)
+            self.script = self.session.create_script(source)
             self.script.load()
 
             return self.session
@@ -217,7 +243,7 @@ class FridaBridge:
             target = "127.0.0.1"
 
             device = self._get_device()
-            front_app = device.get_frontmost_application()
+            front_app = self._get_front_app(device)
             if not front_app:
                 raise Exception("No frontmost application found")
 
