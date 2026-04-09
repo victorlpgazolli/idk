@@ -1,3 +1,4 @@
+import kotlinx.cinterop.UnsafeNumber
 import kotlinx.cinterop.toKString
 import platform.posix.F_OK
 import platform.posix.access
@@ -12,6 +13,7 @@ object CacheManager {
         return "$home/.cache/$CACHE_DIR_NAME"
     }
 
+    @OptIn(UnsafeNumber::class)
     fun ensureCacheDir() {
         val path = cacheDir()
         if (access(path, F_OK) != 0) {

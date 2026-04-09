@@ -1,14 +1,14 @@
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.pointed
+import kotlinx.cinterop.ptr
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import platform.posix.localtime
+import platform.posix.system
 import platform.posix.time
 import platform.posix.time_tVar
-
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 
 object CommandExecutor {
     private val charPool = ('a'..'z') + ('0'..'9')
@@ -66,7 +66,7 @@ object CommandExecutor {
         val logFile = "${CacheManager.cacheDir()}/bridge.log"
         val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
         val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-        platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+        system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
     }
 
     fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = "", showSynthetic: Boolean = false): List<String> {
@@ -78,10 +78,10 @@ object CommandExecutor {
 
         val segments = appPackage.split('.')
         val firstTwo = if (segments.size >= 2) segments.take(2).joinToString(".") else ""
-        
+
         return filteredClasses.sortedWith(compareByDescending<String> { className ->
             var priority = 0
-            
+
             if (appPackage.isNotEmpty()) {
                 if (className.startsWith("$appPackage.") || className == appPackage) {
                     priority = 3
@@ -104,7 +104,7 @@ object CommandExecutor {
                     priority += 10
                 }
             }
-            
+
             priority
         }.thenBy { it })
     }
@@ -157,12 +157,12 @@ object CommandExecutor {
 
         scope.launch {
             state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE, null)
-            
+
             if (!RpcClient.ping()) {
                 val logFile = "${CacheManager.cacheDir()}/bridge.log"
                 val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
                 val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-                platform.posix.system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+                system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
             }
 
             var bridgeReady = false
@@ -173,7 +173,7 @@ object CommandExecutor {
                 }
                 delay(500)
             }
-            
+
             if (!bridgeReady) {
                 state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, "Bridge not ready. Is it running?")
                 return@launch
@@ -196,7 +196,7 @@ object CommandExecutor {
 
             state.sharedGadgetResult.value = Pair(GadgetInstallStatus.INJECTING_JDWP, null)
             val (injectStatus, injectError) = RpcClient.injectJdwp(envResult.target, envResult.port, envResult.package_name)
-            
+
             when (injectStatus) {
                 "completed", "gadget_detected" -> {
                     state.sharedGadgetResult.value = Pair(GadgetInstallStatus.SUCCESS, null)
@@ -208,4 +208,3 @@ object CommandExecutor {
         }
     }
 }
-

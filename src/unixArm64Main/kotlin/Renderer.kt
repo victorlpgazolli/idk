@@ -1,5 +1,3 @@
-import platform.GameplayKit.GKState.Companion.state
-
 object Ansi {
     const val RESET = "\u001b[0m"
     const val WHITE = "\u001b[97m"
