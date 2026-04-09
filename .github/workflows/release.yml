@@ -7,9 +7,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos-arm64:
-    name: Build macOS ARM64
-    runs-on: macos-15
+  build-macos:
+    name: Build macOS ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            target: arm64
+          # todo: add support for macosX64
+          # - os: macos-13
+          #   target: x64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -41,22 +49,29 @@ jobs:
 
       - name: Package Artifacts
         run: |
-          zip -r ./idk-macos-arm64.zip ./dist
-          cp dist/idk idk-macos-arm64-tui
-          cp dist/idk-bridge idk-macos-arm64-bridge
+          zip -r ./idk-macos-${{ matrix.target }}.zip ./dist
+          cp dist/idk idk-macos-${{ matrix.target }}-tui
+          cp dist/idk-bridge idk-macos-${{ matrix.target }}-bridge
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64
+          name: macos-${{ matrix.target }}
           path: |
-            idk-macos-arm64.zip
-            idk-macos-arm64-tui
-            idk-macos-arm64-bridge
+            idk-macos-${{ matrix.target }}.zip
+            idk-macos-${{ matrix.target }}-tui
+            idk-macos-${{ matrix.target }}-bridge
 
-  build-linux-arm64:
-    name: Build Linux ARM64
+  build-linux:
+    name: Build Linux ${{ matrix.target }}
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            target: x64
+          - arch: aarch64
+            target: arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -72,6 +87,7 @@ jobs:
           cache: 'gradle'
 
       - name: Set up cross-compilation dependencies
+        if: matrix.arch == 'aarch64'
         run: bash scripts/setup_linux_arm64_deps.sh
 
       - name: Set up Node.js
@@ -81,30 +97,51 @@ jobs:
           cache: 'npm'
           cache-dependency-path: bridge/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: make install_dependencies
 
-      - name: Release
-        run: make release
+      - name: Compile JS Agent & Kotlin Binary
+        run: |
+          make compile_bridge_agent
+          make compile_binary ARCH=${{ matrix.arch }}
+
+      - name: Compile Python Bridge (Native x86_64)
+        if: matrix.arch == 'x86_64'
+        run: make compile_bridge
+
+      - name: Compile Python Bridge (Docker ARM64)
+        if: matrix.arch == 'aarch64'
+        run: |
+          make compile_bridge_agent
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/app -w /app \
+            python:3.11-slim \
+            bash -c "apt update && apt install -y binutils && make install_dependencies && make compile_bridge"
 
       - name: Package Artifacts
         run: |
-          zip -r ./idk-linux-arm64.zip ./dist
-          cp dist/idk idk-linux-arm64-tui
-          cp dist/idk-bridge idk-linux-arm64-bridge
+          make prepare_release ARCH=${{ matrix.arch }}
+          zip -r ./idk-linux-${{ matrix.target }}.zip ./dist
+          cp dist/idk idk-linux-${{ matrix.target }}-tui
+          cp dist/idk-bridge idk-linux-${{ matrix.target }}-bridge
 
-      - name: Upload Linux ARM64 Artifacts
+      - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: linux-arm64
+          name: linux-${{ matrix.target }}
           path: |
-            idk-linux-arm64.zip
-            idk-linux-arm64-tui
-            idk-linux-arm64-bridge
+            idk-linux-${{ matrix.target }}.zip
+            idk-linux-${{ matrix.target }}-tui
+            idk-linux-${{ matrix.target }}-bridge
 
   publish-artifacts:
     name: Publish Artifacts to GitHub Release
-    needs: [build-macos-arm64, build-linux-arm64]
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,26 +150,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Download macOS Artifacts
-        uses: actions/download-artifact@v8
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4 # using v4 to get the merge-multiple feature
         with:
-          name: macos-arm64
-
-      - name: Download Linux ARM64 Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: linux-arm64
+          path: artifacts
+          merge-multiple: true
 
       - name: Create Release
         run: |
           gh release create ${{ github.ref_name }} \
             --title "Release ${{ github.ref_name }}" \
             --generate-notes \
-            idk-macos-arm64.zip \
-            idk-macos-arm64-tui \
-            idk-macos-arm64-bridge \
-            idk-linux-arm64.zip \
-            idk-linux-arm64-tui \
-            idk-linux-arm64-bridge
+            artifacts/idk-*.zip \
+            artifacts/idk-*-tui \
+            artifacts/idk-*-bridge
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
