@@ -86,6 +86,10 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Set up native compilation dependencies
+        if: matrix.arch == 'x86_64'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Set up cross-compilation dependencies
         if: matrix.arch == 'aarch64'
         run: bash scripts/setup_linux_arm64_deps.sh
