@@ -67,10 +67,11 @@ kotlin-ide/
 .claude/local.md
 .claude/CLAUDE.md
 .claude/settings.local.json
-gradle/wrapper/gradle-wrapper.jar
-
 .vscode
-gradlew
-gradlew.bat
+# gradlew
+# gradlew.bat
 __pycache__
 .worktrees/
+dist
+venv
+*bundle.js

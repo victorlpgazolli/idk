@@ -1,11 +1,20 @@
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.refTo
+import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import platform.posix.F_OK
+import platform.posix.access
+import platform.posix.fgets
+import platform.posix.getenv
 import platform.posix.localtime
+import platform.posix.pclose
+import platform.posix.popen
 import platform.posix.system
 import platform.posix.time
 import platform.posix.time_tVar
@@ -61,12 +70,50 @@ object CommandExecutor {
         }
     }
 
+    @OptIn(ExperimentalForeignApi::class)
+    private fun getBridgeCommand(serialArg: String): String {
+        // 1. Check $PATH via `which`
+        val whichResult = buildString {
+            val pipe = popen("which idk-bridge 2>/dev/null", "r") ?: return@buildString
+            val buf = ByteArray(256)
+            while (fgets(buf.refTo(0), buf.size, pipe) != null) {
+                append(buf.toKString())
+            }
+            pclose(pipe)
+        }.trim()
+
+        if (whichResult.isNotEmpty()) {
+            return "$whichResult$serialArg"
+        }
+
+
+
+        // 2. Check environment variable
+        val envPath = getenv("IDK_BRIDGE_PATH")?.toKString()
+        if (!envPath.isNullOrEmpty()) {
+            return "$envPath$serialArg"
+        }
+
+        // 3. Check current working directory
+        if (access("./idk-bridge", F_OK) == 0) {
+            return "./idk-bridge$serialArg"
+        }
+
+        val idkDevEnv = getenv("IDK_DEVELOPMENT")?.toKString()
+        if (idkDevEnv.isNullOrEmpty()) {
+            throw RuntimeException("idk-bridge not found in: \$PATH, \$IDK_BRIDGE_PATH or locally ./idk-bridge")
+        }
+        // 4. Fallback to development mode
+        return "python3 ./bridge/bridge.py$serialArg"
+    }
+
     fun restartBridge(state: AppState, scope: CoroutineScope) {
         state.bridgeLogs = emptyList()
         val logFile = "${CacheManager.cacheDir()}/bridge.log"
         val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
         val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-        system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+        val bridgeCmd = getBridgeCommand(serialArg)
+        system("$bridgeCmd > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
     }
 
     fun sortClasses(classes: List<String>, appPackage: String, searchQuery: String = "", showSynthetic: Boolean = false): List<String> {
@@ -159,10 +206,7 @@ object CommandExecutor {
             state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE, null)
 
             if (!RpcClient.ping()) {
-                val logFile = "${CacheManager.cacheDir()}/bridge.log"
-                val pidFile = "${CacheManager.cacheDir()}/bridge.pid"
-                val serialArg = if (state.adbSerial != null) " --serial ${state.adbSerial}" else ""
-                system("python3 ./bridge/bridge.py$serialArg > \"$logFile\" 2>&1 & echo \$! > \"$pidFile\"")
+                restartBridge(state, scope)
             }
 
             var bridgeReady = false

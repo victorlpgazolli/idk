@@ -11,5 +11,8 @@
   "description": "",
   "dependencies": {
     "frida-java-bridge": "^7.0.13"
+  },
+  "devDependencies": {
+    "frida-compile": "^19.0.5"
   }
 }
