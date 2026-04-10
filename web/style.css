@@ -108,6 +108,72 @@ section {
     font-weight: bold;
 }
 
+/* Installation Box */
+.install-box {
+    background: var(--bg-secondary);
+    padding: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.install-box p {
+    margin-bottom: 1rem;
+}
+
+.install-box pre {
+    margin: 1.5rem 0;
+    border: 1px solid var(--primary);
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.install-box pre:hover {
+    background: #1c2128;
+    transform: translateY(-2px);
+}
+
+.install-box pre:active {
+    transform: translateY(0);
+}
+
+.copy-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.7rem;
+    background: var(--border);
+    color: var(--text-secondary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-family: var(--font-sans);
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+.install-box pre:hover .copy-badge {
+    background: var(--primary);
+    color: var(--bg-main);
+}
+
+.copy-badge.copied {
+    background: #238636 !important;
+    color: white !important;
+}
+
+.install-box code {
+    font-size: 1.1rem;
+    color: var(--primary);
+}
+
+.small {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 1rem;
+}
+
 /* Tabs */
 .tabs {
     margin-top: 2rem;

@@ -54,7 +54,14 @@
 
 <section id="distribution">
     <div class="container">
-        <h2>Distribution</h2>
+        <h2>Installation</h2>
+        <div class="install-box">
+            <p>To install IDK on <strong>macOS (ARM64)</strong>, <strong>Linux (x64/ARM64)</strong>, or <strong>WSL</strong>, run the following command in your terminal:</p>
+            <pre id="copy-container"><code>curl -sSL https://idk.victorlpgazolli.dev/install.sh | bash</code><span class="copy-badge" id="copy-label">Copy</span></pre>
+            <p class="small">The installer automatically detects your architecture, sets up the environment, and removes macOS quarantine flags.</p>
+        </div>
+
+        <!-- Homebrew and Standalone methods are currently disabled in favor of the universal installer
         <div class="tabs">
             <ul class="tab-list">
                 <li class="tab-item active" data-tab="brew">Brew</li>
@@ -71,6 +78,7 @@ brew install idk</code></pre>
 ./idk</code></pre>
             </div>
         </div>
+        -->
     </div>
 </section>
 
@@ -81,6 +89,25 @@ brew install idk</code></pre>
 </footer>
 
 <script>
+    // Copy to clipboard functionality
+    const copyContainer = document.getElementById('copy-container');
+    const copyLabel = document.getElementById('copy-label');
+    const commandText = "curl -sSL https://idk.dev/install.sh | bash";
+
+    if (copyContainer) {
+        copyContainer.addEventListener('click', () => {
+            navigator.clipboard.writeText(commandText).then(() => {
+                copyLabel.textContent = "Copied!";
+                copyLabel.classList.add('copied');
+                
+                setTimeout(() => {
+                    copyLabel.textContent = "Copy";
+                    copyLabel.classList.remove('copied');
+                }, 2000);
+            });
+        });
+    }
+
     document.querySelectorAll('.tab-item').forEach(item => {
         item.addEventListener('click', () => {
             // Remove active classes

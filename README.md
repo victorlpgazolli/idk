@@ -31,21 +31,21 @@ IMAGEM_AQUI_2
 
 ## Installation
 
-### Homebrew
-For macOS users, IDK will be available via a dedicated tap:
+To install IDK on **macOS (ARM64)**, **Linux (x64/ARM64)**, or **WSL**, run the following command in your terminal:
+
 ```bash
-brew tap victorgazolli/idk
-brew install idk
+curl -sSL https://idk.victorlpgazolli.dev/install.sh | bash
 ```
 
-### Standalone
-Pre-compiled binaries for macOS (ARM64) can be downloaded directly from the GitHub Releases page. 
+The installer automatically detects your architecture, sets up the environment, and handles macOS quarantine flags.
 
-To run the standalone version, you must define the path to the bridge binary using an environment variable:
+### Manual Setup
+If you prefer manual installation, ensure the following variables are in your shell configuration (`.zshrc` or `.bashrc`):
+
 ```bash
-export IDK_BRIDGE_PATH=/path/to/idk-bridge
-chmod +x idk
-./idk
+export PATH="$PATH:$HOME/.idk/bin"
+export IDK_BRIDGE_PATH="$HOME/.idk/bin/idk-bridge"
 ```
+
 
 IMAGEM_AQUI_3
