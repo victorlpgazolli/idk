@@ -21,6 +21,23 @@ echo -e "${BLUE}==>${NC} Installing IDK: Interactive Debug Kit..."
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
+confirm_and_run() {
+    echo -e "About to run: \"$@\""
+    
+    read -p "Do you want to continue? [y/N]: " confirmation
+    
+    case "$confirmation" in 
+        [yY]|[yY][eE][sS] ) 
+            echo "Executing..."
+            "$@"
+            ;;
+        * ) 
+            echo "Canceled."
+            exit 1
+            ;;
+    esac
+}
+
 case "$OS" in
     Darwin)
         if [ "$ARCH" = "arm64" ]; then
@@ -47,11 +64,12 @@ case "$OS" in
 esac
 
 # 2. Get Latest Release Version from GitHub
-echo -e "${BLUE}==>${NC} Finding latest release..."
-LATEST_RELEASE=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_RELEASE=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases" |
+  jq -r '.[] | select(.prerelease == false) | .tag_name' |
+  head -n 1)
 
 if [ -z "$LATEST_RELEASE" ]; then
-    echo -e "${RED}Error:${NC} Could not find latest release on GitHub."
+    echo -e "${RED}Error:${NC} Could not find a valid release on GitHub."
     exit 1
 fi
 
@@ -63,7 +81,7 @@ mkdir -p "$BIN_DIR"
 
 # 4. Download and Extract
 TEMP_ZIP=$(mktemp)
-curl -L -o "$TEMP_ZIP" "$DOWNLOAD_URL"
+confirm_and_run curl -L -o "$TEMP_ZIP" "$DOWNLOAD_URL"
 
 echo -e "${BLUE}==>${NC} Extracting to $INSTALL_DIR..."
 unzip -o "$TEMP_ZIP" -d "$INSTALL_DIR/tmp_extract"
@@ -73,33 +91,39 @@ rm "$TEMP_ZIP"
 
 # 5. Handle macOS Quarantine
 if [ "$OS" = "Darwin" ]; then
-    echo -e "${BLUE}==>${NC} Removing macOS quarantine attributes..."
-    xattr -dr com.apple.quarantine "$BIN_DIR" || true
+    echo -e "${BLUE}==>${NC} Since the project is not signed, removing macOS quarantine attributes..."
+    confirm_and_run xattr -dr com.apple.quarantine "$BIN_DIR" || true
 fi
 
 # 6. Ensure executability
-chmod +x "$BIN_DIR/idk"
-chmod +x "$BIN_DIR/idk-bridge"
+confirm_and_run chmod +x "$BIN_DIR/idk" "$BIN_DIR/idk-bridge"
 
-# 7. Setup PATH instruction
-SHELL_TYPE=$(basename "$SHELL")
-RC_FILE=""
+# 7. Configure PATH or create symbolic link in ~/.local/bin
+LOCAL_BIN="$HOME/.local/bin"
+if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
+    echo -e "\n${RED}Warning:${NC} $LOCAL_BIN is not in your PATH. Configuring for you..."
 
-case "$SHELL_TYPE" in
-    zsh) RC_FILE="$HOME/.zshrc" ;;
-    bash) RC_FILE="$HOME/.bashrc" ;;
-    *) RC_FILE="$HOME/.profile" ;;
-esac
+    SHELL_TYPE=$(basename "$SHELL")
+    RC_FILE=""
 
-echo -e "\n${GREEN}Success! IDK has been installed to $BIN_DIR${NC}"
-echo -e "\nTo start using idk, run:"
-echo -e "  ${BLUE}export PATH=\"\$PATH:$BIN_DIR\"${NC}"
-echo -e "  ${BLUE}export IDK_BRIDGE_PATH=\"$BIN_DIR/idk-bridge\"${NC}"
+    case "$SHELL_TYPE" in
+        zsh) RC_FILE="$HOME/.zshrc" ;;
+        bash) RC_FILE="$HOME/.bashrc" ;;
+    esac
+    if [ -z "$RC_FILE" ]; then
+        echo -e "${RED}Error:${NC} Unsupported shell: $SHELL_TYPE. Please add $LOCAL_BIN to your PATH manually."
+        exit 1
+    fi
 
-if ! grep -q "IDK_BRIDGE_PATH" "$RC_FILE"; then
-    echo -e "\nTo make these changes permanent, add them to your $RC_FILE:"
-    echo -e "  echo 'export PATH=\"\$PATH:$BIN_DIR\"' >> $RC_FILE"
-    echo -e "  echo 'export IDK_BRIDGE_PATH=\"$BIN_DIR/idk-bridge\"' >> $RC_FILE"
+    echo -e "\n${BLUE}==>${NC} Adding $LOCAL_BIN to PATH in $RC_FILE..."
+    echo -e "\n# Added by IDK installer" >> "$RC_FILE"
+    confirm_and_run echo -e "export PATH=\"\$PATH:$LOCAL_BIN\"" >> "$RC_FILE"
+    echo -e "${GREEN}Success:${NC} Added $LOCAL_BIN to PATH in $RC_FILE."
+
 fi
+mkdir -p "$LOCAL_BIN"
+confirm_and_run ln -sf "$BIN_DIR/idk" "$LOCAL_BIN/idk"
+confirm_and_run ln -sf "$BIN_DIR/idk-bridge" "$LOCAL_BIN/idk-bridge"
+echo -e "\n${GREEN}Success:${NC} Created symbolic links in $LOCAL_BIN."
 
 echo -e "\n${BLUE}==>${NC} Run 'idk' to start debugging!"
