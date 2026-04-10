@@ -34,7 +34,7 @@ IMAGEM_AQUI_2
 To install IDK on **macOS (ARM64)**, **Linux (x64/ARM64)**, or **WSL**, run the following command in your terminal:
 
 ```bash
-curl -sSL https://idk.victorlpgazolli.dev/install.sh | bash
+curl -sSL https://idk.victorlpgazolli.dev/install.sh -o install.sh && bash install.sh
 ```
 
 The installer automatically detects your architecture, sets up the environment, and handles macOS quarantine flags.

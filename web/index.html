@@ -57,7 +57,7 @@
         <h2>Installation</h2>
         <div class="install-box">
             <p>To install IDK on <strong>macOS (ARM64)</strong>, <strong>Linux (x64/ARM64)</strong>, or <strong>WSL</strong>, run the following command in your terminal:</p>
-            <pre id="copy-container"><code>curl -sSL https://idk.victorlpgazolli.dev/install.sh | bash</code><span class="copy-badge" id="copy-label">Copy</span></pre>
+            <pre id="copy-container"><code>curl -sSL https://idk.victorlpgazolli.dev/install.sh -o install.sh && bash install.sh</code><span class="copy-badge" id="copy-label">Copy</span></pre>
             <p class="small">The installer automatically detects your architecture, sets up the environment, and removes macOS quarantine flags.</p>
         </div>
 
@@ -92,7 +92,7 @@ brew install idk</code></pre>
     // Copy to clipboard functionality
     const copyContainer = document.getElementById('copy-container');
     const copyLabel = document.getElementById('copy-label');
-    const commandText = "curl -sSL https://idk.victorlpgazolli.dev/install.sh | bash";
+    const commandText = "curl -sSL https://idk.victorlpgazolli.dev/install.sh -o install.sh && bash install.sh";
 
     if (copyContainer) {
         copyContainer.addEventListener('click', () => {
