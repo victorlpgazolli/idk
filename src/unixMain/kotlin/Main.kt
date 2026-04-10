@@ -148,6 +148,8 @@ fun main(args: Array<String>) {
     }
 
     Terminal.enableRawMode()
+    print(Ansi.ENABLE_MOUSE)
+    Terminal.flush()
     Renderer.render(state)
 
     while (state.running) {
@@ -198,6 +200,9 @@ fun main(args: Array<String>) {
                                 state.inspectInstanceAttributes = emptyList()
                                 state.inspectMethods = emptyList()
                                 state.inspectExpandedInstances.clear()
+                                state.inspectInstancesList = null
+                                state.inspectInstancesTotalCount = 0
+                                state.inspectInstancesExpanded = false
                                 state.selectedClassIndex = 0
                                 state.pushMode(AppMode.DEBUG_INSPECT_CLASS)
                                 Renderer.render(state)
@@ -430,7 +435,7 @@ fun main(args: Array<String>) {
                 }
             }
 
-            is KeyEvent.ArrowDown -> {
+            is KeyEvent.ArrowDown, is KeyEvent.MouseScrollDown -> {
                 if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
                     val hooks = state.activeHooks.toList()
                     if (hooks.isNotEmpty()) {
@@ -472,7 +477,7 @@ fun main(args: Array<String>) {
                 }
             }
 
-            is KeyEvent.ArrowUp -> {
+            is KeyEvent.ArrowUp, is KeyEvent.MouseScrollUp -> {
                 if (state.mode == AppMode.DEBUG_HOOK_WATCH) {
                     val hooks = state.activeHooks.toList()
                     if (hooks.isNotEmpty()) {
@@ -604,7 +609,31 @@ fun main(args: Array<String>) {
                 } else if (state.mode == AppMode.DEBUG_CLASS_FILTER) {
                     if (state.displayedClasses.isNotEmpty() && state.selectedClassIndex >= 0) {
                         val selectedClass = state.displayedClasses[state.selectedClassIndex]
-                        TmuxManager.appendInspectWindow(selectedClass)
+                        
+                        // Set up state for inspection
+                        state.inspectTargetClassName = selectedClass
+                        state.isFetchingInspection = true
+                        state.inspectStaticAttributes = emptyList()
+                        state.inspectInstanceAttributes = emptyList()
+                        state.inspectMethods = emptyList()
+                        state.inspectExpandedInstances.clear()
+                        state.inspectExpandedInstancesError.clear()
+                        state.inspectInstancesList = null
+                        state.inspectInstancesTotalCount = 0
+                        state.inspectInstancesExpanded = false
+                        state.selectedClassIndex = 0
+                        state.rpcError = null
+                        
+                        state.pushMode(AppMode.DEBUG_INSPECT_CLASS)
+                        Renderer.render(state)
+                        
+                        // Start fetching in background
+                        scope.launch {
+                            val (result, error) = RpcClient.inspectClass(selectedClass)
+                            state.sharedInspectResult.value = result
+                            state.sharedRpcError.value = error
+                            state.isFetchingInspection = false
+                        }
                     }
                 } else if (state.mode == AppMode.DEBUG_INSPECT_CLASS) {
                     val rows = state.buildInspectRows()
@@ -969,6 +998,7 @@ fun main(args: Array<String>) {
         }
     }
 
+    print(Ansi.DISABLE_MOUSE)
     Terminal.disableRawMode()
     HistoryStore.save(state.commandHistory)
 

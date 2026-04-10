@@ -23,6 +23,8 @@ sealed class KeyEvent {
     data object CtrlA : KeyEvent()
     data object CtrlE : KeyEvent()
     data object CtrlC : KeyEvent()
+    data object MouseScrollUp : KeyEvent()
+    data object MouseScrollDown : KeyEvent()
     data object Timeout : KeyEvent()
     data object Unknown : KeyEvent()
 }
@@ -57,6 +59,31 @@ object InputHandler {
                 } else if (next == '['.code) {
                     var b = readByte()
                     var seqStr = ""
+                    if (b == '<'.code) {
+                        // SGR mouse mode
+                        var mouseSeq = ""
+                        var lastChar = ' '
+                        while (true) {
+                            val nextByte = readByte()
+                            if (nextByte == -1) break
+                            val c = nextByte.toChar()
+                            if (c == 'm' || c == 'M') {
+                                lastChar = c
+                                break
+                            }
+                            mouseSeq += c
+                        }
+                        val parts = mouseSeq.split(';')
+                        if (parts.size >= 1) {
+                            val button = parts[0].toIntOrNull() ?: 0
+                            return when (button) {
+                                64 -> KeyEvent.MouseScrollUp
+                                65 -> KeyEvent.MouseScrollDown
+                                else -> KeyEvent.Unknown
+                            }
+                        }
+                        return KeyEvent.Unknown
+                    }
                     while (b != -1 && b < 0x40) {
                         seqStr += b.toChar()
                         b = readByte()
