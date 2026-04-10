@@ -75,3 +75,5 @@ __pycache__
 dist
 venv
 *bundle.js
+*.qcow2
+*.iso

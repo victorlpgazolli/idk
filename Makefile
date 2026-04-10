@@ -29,7 +29,7 @@ VENV       := bridge/venv
 PIP        := $(VENV)/bin/pip
 PYTHON     := $(abspath $(VENV)/bin/python)
 
-.PHONY: install_dependencies compile_all compile_bridge_agent compile_bridge compile_binary prepare_release release run run_docker
+.PHONY: install_dependencies compile_all compile_bridge_agent compile_bridge compile_binary prepare_release release run run_arm64_qemu
 
 install_dependencies:
 	rm -rf $(VENV)
@@ -52,8 +52,8 @@ compile_all: compile_binary compile_bridge_agent compile_bridge
 
 release: compile_all prepare_release
 
-run_docker:
-	./start_docker.sh
+run_arm64_qemu:
+	./scripts/start_arm64_qemu.sh
 
 run:
 	./dist/idk
