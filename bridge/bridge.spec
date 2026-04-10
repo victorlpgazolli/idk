@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs, collect_data_files
 
 frida_hidden = collect_submodules('frida')
 frida_binaries = collect_dynamic_libs('frida')
+frida_datas = collect_data_files('frida')
 
 a = Analysis(
     ['bridge.py'],
@@ -10,7 +11,7 @@ a = Analysis(
     binaries=frida_binaries,
     datas=[
         ('agent.bundle.js', '.')
-    ],
+    ] + frida_datas,
     hiddenimports=['jdwp_frida'] + frida_hidden,
     hookspath=[],
     hooksconfig={},
@@ -31,8 +32,8 @@ exe = EXE(
     name='idk-bridge',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    upx=True,
+    strip=False,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,

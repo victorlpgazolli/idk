@@ -14,6 +14,29 @@ from jdwp_frida import run_jdwp
 
 logging.basicConfig(level=logging.INFO)
 
+def setup_runtime_env():
+    if hasattr(sys, '_MEIPASS'):
+        mei_path = sys._MEIPASS
+        # Frida puts its binaries/helpers in a subdirectory within the package
+        # We need to find where _frida.abi3.so and friends are
+        frida_dir = os.path.join(mei_path, 'frida')
+        
+        # Add both to library search paths
+        for env_var in ['DYLD_LIBRARY_PATH', 'LD_LIBRARY_PATH']:
+            current = os.environ.get(env_var, '')
+            paths = [mei_path, frida_dir]
+            if current:
+                paths.append(current)
+            os.environ[env_var] = ':'.join(paths)
+        
+        # Add to PATH for helper binaries
+        current_path = os.environ.get('PATH', '')
+        os.environ['PATH'] = f"{mei_path}:{frida_dir}:{current_path}"
+        
+        logging.info(f"Runtime environment setup. _MEIPASS: {mei_path}")
+
+setup_runtime_env()
+
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -93,9 +116,9 @@ class FridaBridge:
         try:
             if self.serial:
                 logging.info(f"Targeting specific device serial: {self.serial}")
-                return frida.get_device(self.serial, timeout=2)
+                return frida.get_device(self.serial, timeout=10)
             else:
-                return frida.get_usb_device(timeout=2)
+                return frida.get_usb_device(timeout=10)
         except Exception as e:
             raise Exception(f"Failed to find device: {e}")
 
