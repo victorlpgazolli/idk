@@ -1,6 +1,7 @@
 import Java from "frida-java-bridge";
 
 var instanceCache = {};
+var parentCache = {};
 var hookEvents = [];
 var activeHookImplementations = {};
 var fieldPollingInterval = null;
@@ -356,6 +357,7 @@ rpc.exports = {
                         if (val !== null && typeof val === 'object') {
                             childId = val.hashCode().toString();
                             instanceCache[childId] = val;
+                            parentCache[childId] = id;
                             try { childClassName = val.getClass().getName(); } catch(e) {}
                         }
                         
@@ -397,6 +399,7 @@ rpc.exports = {
                         if (val !== null && typeof val === 'object') {
                             childId = val.hashCode().toString();
                             instanceCache[childId] = val;
+                            parentCache[childId] = id;
                             try { childClassName = val.getClass().getName(); } catch(e) {}
                         }
                         
@@ -433,6 +436,7 @@ rpc.exports = {
                         if (val !== null && typeof val === 'object') {
                             childId = val.hashCode().toString();
                             instanceCache[childId] = val;
+                            parentCache[childId] = id;
                             try { childClassName = val.getClass().getName(); } catch(e) {}
                         }
                         
@@ -476,6 +480,8 @@ rpc.exports = {
                                 if (!isBasicType) {
                                     childId = fieldVal.hashCode().toString();
                                     instanceCache[childId] = fieldVal;
+                                    parentCache[childId] = id;
+                                    send("DEBUG: cached child instance " + childId + " (" + (childClassName || field.getType().getName()) + ") for field " + name);
                                     try {
                                         childClassName = fieldVal.getClass().getName();
                                     } catch(e) {
@@ -678,15 +684,28 @@ rpc.exports = {
             return Java.perform(function() {
                 var instance = instanceCache[id];
                 if (!instance) {
-                    throw new Error("Instance not found in cache.");
+                    throw new Error("Instance not found in cache. Did you list instances first?");
                 }
                 
-                var actualClassName = instance.getClass().getName();
-                var clazz = Java.use(actualClassName);
-                var classDef = clazz.class;
-                
-                var field = classDef.getDeclaredField(fieldName);
+                var actualClass = instance.getClass();
+                var currentClass = actualClass;
+                var field = null;
+
+                while (currentClass !== null) {
+                    try {
+                        field = currentClass.getDeclaredField(fieldName);
+                        break;
+                    } catch (e) {
+                        currentClass = currentClass.getSuperclass();
+                    }
+                }
+
+                if (!field) {
+                    throw new Error("Field '" + fieldName + "' not found in hierarchy of " + actualClass.getName());
+                }
+
                 field.setAccessible(true);
+                var classDef = currentClass;
                 
                 var t = type.toLowerCase();
                 var val = null;
@@ -699,9 +718,136 @@ rpc.exports = {
                 else if (t === "byte") val = Java.use("java.lang.Byte").valueOf(parseInt(newValue, 10));
                 else if (t === "char") val = Java.use("java.lang.Character").valueOf(newValue.charAt(0));
                 else if (t === "string" || t === "charsequence") val = Java.use("java.lang.String").$new(newValue);
-                else throw new Error("Unsupported type for editing");
+                else throw new Error("Unsupported type for editing: " + type);
                 
                 field.set(instance, val);
+
+                // Attempt to trigger Compose recomposition
+                (function tryRecompose() {
+                    send("DEBUG: tryRecompose starting for field: " + fieldName + " on class: " + classDef.getName());
+                    
+                    var Snapshot = null;
+                    try { Snapshot = Java.use("androidx.compose.runtime.snapshots.Snapshot"); } catch(e) {}
+
+                    function triggerGlobal() {
+                        if (Snapshot) {
+                            try {
+                                Snapshot.Companion.value.sendApplyNotifications();
+                                send("DEBUG: sendApplyNotifications called");
+                            } catch(e) { send("DEBUG: sendApplyNotifications failed: " + e); }
+                        }
+                    }
+
+                    // Strategy 1: backing MutableState delegate
+                    try {
+                        var dField = null;
+                        var curr = classDef;
+                        while (curr !== null) {
+                            try {
+                                dField = curr.getDeclaredField(fieldName + "$delegate");
+                                break;
+                            } catch(ex) { curr = curr.getSuperclass(); }
+                        }
+                        if (dField) {
+                            dField.setAccessible(true);
+                            var sObj = dField.get(instance);
+                            var oClass = Java.use("java.lang.Object").class;
+                            var setValM = sObj.getClass().getMethod("setValue", oClass);
+                            setValM.invoke(sObj, val);
+                            send("DEBUG: Strategy 1 (delegate) succeeded");
+                            return;
+                        }
+                    } catch (e) { send("DEBUG: Strategy 1 failed: " + e); }
+
+                    // Strategy 2: If no delegate, we mutated a field of an object.
+                    // We need to notify that this object (and its parents) changed.
+                    triggerGlobal();
+
+                    // If we have parent information, we can also try to "touch" the parent's MutableState if it exists
+                    var currentId = id;
+                    var foundStateFlow = false;
+                    while (parentCache[currentId]) {
+                        var parentId = parentCache[currentId];
+                        var parentInstance = instanceCache[parentId];
+                        if (parentInstance) {
+                            var parentClassName = "";
+                            try { parentClassName = parentInstance.getClass().getName(); } catch(e) {}
+                            send("DEBUG: Touching parent " + parentId + " (" + parentClassName + ")");
+                            
+                            if (parentClassName === "kotlinx.coroutines.flow.StateFlowImpl") {
+                                foundStateFlow = true;
+                                send("DEBUG: StateFlow Force-Emit triggered for parent " + parentId);
+                                try {
+                                    var stateFlowClass = parentInstance.getClass();
+                                    var updateStateMethod = null;
+                                    var methods = stateFlowClass.getDeclaredMethods();
+                                    for (var m = 0; m < methods.length; m++) {
+                                        if (methods[m].getName() === "updateState") {
+                                            updateStateMethod = methods[m];
+                                            break;
+                                        }
+                                    }
+                                    if (updateStateMethod) {
+                                        updateStateMethod.setAccessible(true);
+                                        // Using null as expected/old value to force update in internal compareAndSet, or just invoking it.
+                                        // Depending on coroutines version, updateState takes 2 args. 
+                                        // If it fails, the fallback is RecomposeScope invalidation.
+                                        try { updateStateMethod.invoke(parentInstance, null, parentInstance.getValue()); } catch(e) {}
+                                    }
+                                } catch(e) { send("DEBUG: StateFlow bypass attempt failed: " + e); }
+                            }
+                            
+                            if (Snapshot) triggerGlobal();
+                        }
+                        currentId = parentId;
+                    }
+
+                    // Strategy 3: enumerate RecomposeScopeImpl as a broad fallback (Multiplatform compatible)
+                    // We run this asynchronously to avoid blocking the hook and causing timeouts.
+                    try {
+                        setTimeout(function() {
+                            Java.perform(function() {
+                                var count = 0;
+                                try {
+                                    Java.choose("androidx.compose.runtime.RecomposeScopeImpl", {
+                                        onMatch: function(r) { 
+                                            try { 
+                                                r.invalidate(); 
+                                                count++;
+                                                // Limit to a reasonable number to avoid ANRs on huge screens
+                                                if (count > 200) return "stop";
+                                            } catch(e) {} 
+                                        },
+                                        onComplete: function() {
+                                            send("DEBUG: Strategy 3 (RecomposeScope) finished, invalidated " + count + " scopes");
+                                            triggerGlobal(); // Flush snapshots after invalidation
+                                        }
+                                    });
+                                } catch(e) { send("DEBUG: Java.choose for RecomposeScopeImpl failed: " + e); }
+                            });
+                        }, 10);
+                    } catch (e) { send("DEBUG: Strategy 3 schedule failed: " + e); }
+
+                    // Strategy 4: Find AndroidComposeView and invalidate it (Android specific)
+                    try {
+                        setTimeout(function() {
+                            Java.perform(function() {
+                                try {
+                                    Java.choose("androidx.compose.ui.platform.AndroidComposeView", {
+                                        onMatch: function(v) {
+                                            try {
+                                                v.postInvalidate();
+                                                send("DEBUG: Strategy 4 (AndroidComposeView) postInvalidate called");
+                                            } catch(e) {}
+                                        },
+                                        onComplete: function() {}
+                                    });
+                                } catch(e) {}
+                            });
+                        }, 10);
+                    } catch(e) {}
+                })();
+
                 return true;
             });
         } catch (e) {
