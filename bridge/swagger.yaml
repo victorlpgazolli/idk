@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: idk JSON-RPC Bridge API
+  description: API for communication between the idk TUI and the Frida agent injected into Android.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local bridge server
+
+paths:
+  /ping:
+    get:
+      summary: Checks if the bridge is active
+      responses:
+        '200':
+          description: Bridge operational
+          content:
+            application/json:
+              example: {"status": "pong"}
+
+  /rpc:
+    post:
+      summary: Main endpoint for JSON-RPC 2.0 calls
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jsonrpc:
+                  type: string
+                  enum: ["2.0"]
+                id:
+                  type: integer
+                method:
+                  type: string
+                params:
+                  type: object
+      responses:
+        '200':
+          description: Successful RPC response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jsonrpc:
+                    type: string
+                  id:
+                    type: integer
+                  result:
+                    type: object
+
+components:
+  schemas:
+    # Detailed method definitions via params examples
+    listClasses:
+      example:
+        method: listClasses
+        params:
+          search_param: "androidx.compose"
+          app_package: "com.example"
+          offset: 0
+          limit: 50
+
+    inspectClass:
+      example:
+        method: inspectClass
+        params:
+          className: "com.example.UiState"
+
+    listInstances:
+      example:
+        method: listInstances
+        params:
+          className: "com.example.UiState"
+
+    inspectInstance:
+      example:
+        method: inspectInstance
+        params:
+          className: "com.example.UiState"
+          id: "1644941988"
+          offset: 0
+          limit: 50
+
+    setFieldValue:
+      example:
+        method: setFieldValue
+        params:
+          className: "com.example.UiState"
+          id: "-418131248"
+          fieldName: "usernameInput"
+          type: "string"
+          newValue: "new_user"
+
+    prepareEnvironment:
+      example:
+        method: prepareEnvironment
+        params: {}
+
+    injectJdwp:
+      example:
+        method: injectJdwp
+        params:
+          loadlib: "/data/local/tmp/frida-gadget.so"
+          package_name: "com.example"
+
+    hookMethod:
+      example:
+        method: hookMethod
+        params:
+          className: "android.view.View"
+          methodSig: "public void setOnClickListener(android.view.View$OnClickListener)"
+
+# Detailed usage examples by method
+x-rpc-methods:
+  listClasses:
+    description: Lists classes loaded in the Android JVM.
+    params:
+      search_param: Text filter (case-insensitive).
+      app_package: App package to prioritize in sorting.
+      offset: Starting point.
+      limit: Number of results.
+
+  inspectClass:
+    description: Returns static fields, instance fields, and methods of a class.
+    params:
+      className: Full class name (e.g., java.lang.String).
+
+  listInstances:
+    description: Finds live instances of a class in the heap or via StateFlow/LiveData.
+    params:
+      className: Full class name.
+
+  inspectInstance:
+    description: Explores the fields and values of a specific instance. Adds children to the cache.
+    params:
+      id: HashCode or handle of the instance.
+      className: Class name.
+
+  setFieldValue:
+    description: Modifies a primitive field and triggers Compose recomposition.
+    params:
+      id: Instance ID in the cache.
+      fieldName: Field name.
+      type: Type (int, string, boolean, etc).
+      newValue: New value as a string.
+
+  hookMethod:
+    description: Intercepts method calls and logs events.
+    params:
+      className: Class of the method.
+      methodSig: Full method signature (as returned by inspectClass).
