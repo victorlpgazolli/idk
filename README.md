@@ -48,4 +48,16 @@ chmod +x idk
 ./idk
 ```
 
+## macOS Code Signing Setup
+
+To enable official macOS code signing and notarization in the GitHub Actions release workflow, the following secrets must be added to your GitHub repository settings:
+
+*   `MACOS_CERTIFICATE`: The Base64 encoded `.p12` certificate file (Developer ID Application).
+    *   Command to generate: `base64 -i cert.p12 -o cert.base64`
+*   `MACOS_CERTIFICATE_PWD`: The password for the `.p12` certificate.
+*   `APPLE_ID`: Your Apple ID email address used for notarization.
+*   `APPLE_ID_PASSWORD`: An app-specific password generated for notarization (not your main account password).
+*   `APPLE_TEAM_ID`: Your 10-character Apple Developer Team ID.
+
+
 IMAGEM_AQUI_3

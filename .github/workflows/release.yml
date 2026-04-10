@@ -47,11 +47,55 @@ jobs:
       - name: Release
         run: make release
 
-      - name: Package Artifacts
+      - name: Import Apple Developer Certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Package, Sign, and Notarize Artifacts
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "${{ secrets.MACOS_CERTIFICATE }}" ]; then
+            echo "Signing binaries..."
+            codesign --force --options runtime --deep --sign "Developer ID Application" dist/idk
+            codesign --force --options runtime --deep --sign "Developer ID Application" dist/idk-bridge
+          else
+            echo "Skipping signing: MACOS_CERTIFICATE secret not found."
+          fi
+
           zip -r ./idk-macos-${{ matrix.target }}.zip ./dist
           cp dist/idk idk-macos-${{ matrix.target }}-tui
           cp dist/idk-bridge idk-macos-${{ matrix.target }}-bridge
+
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_ID_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "Notarizing zip file..."
+            xcrun notarytool submit idk-macos-${{ matrix.target }}.zip \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+          else
+            echo "Skipping notarization: Apple credentials not fully provided."
+          fi
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v7
