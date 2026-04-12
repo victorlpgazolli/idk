@@ -12,10 +12,7 @@ enum class AppMode {
 
 enum class GadgetInstallStatus {
     IDLE,
-    WAITING_BRIDGE,
-    PREPARING_ADB,
-    DEPLOYING_GADGET,
-    INJECTING_JDWP,
+    WAITING_BRIDGE_SETUP,
     SUCCESS,
     ERROR
 }

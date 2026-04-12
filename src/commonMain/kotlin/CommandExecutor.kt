@@ -72,6 +72,9 @@ object CommandExecutor {
 
     @OptIn(ExperimentalForeignApi::class)
     private fun getBridgeCommand(serialArg: String): String {
+        if (isDevelopmentEnvironment) {
+            return "python3 ./bridge/bridge.py$serialArg"
+        }
         // 1. Check $PATH via `which`
         val whichResult = buildString {
             val pipe = popen("which idk-bridge 2>/dev/null", "r") ?: return@buildString
@@ -99,11 +102,7 @@ object CommandExecutor {
             return "./idk-bridge$serialArg"
         }
 
-        if (isDevelopmentEnvironment.not()) {
-            throw RuntimeException("idk-bridge not found in: \$PATH, \$IDK_BRIDGE_PATH or locally ./idk-bridge")
-        }
-        // 4. Fallback to development mode
-        return "python3 ./bridge/bridge.py$serialArg"
+        throw RuntimeException("idk-bridge not found in: \$PATH, \$IDK_BRIDGE_PATH or locally ./idk-bridge")
     }
 
     fun restartBridge(state: AppState, scope: CoroutineScope) {
@@ -197,19 +196,19 @@ object CommandExecutor {
     }
 
     private fun handleDebug(state: AppState, scope: CoroutineScope) {
-        state.gadgetInstallStatus = GadgetInstallStatus.WAITING_BRIDGE
+        state.gadgetInstallStatus = GadgetInstallStatus.WAITING_BRIDGE_SETUP
         state.gadgetErrorMessage = null
         state.gadgetSpinnerFrame = 0
 
         scope.launch {
-            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE, null)
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.WAITING_BRIDGE_SETUP, null)
 
             if (!RpcClient.ping()) {
                 restartBridge(state, scope)
             }
 
             var bridgeReady = false
-            for (i in 0..10) {
+            for (i in 0..50) {
                 if (RpcClient.ping()) {
                     bridgeReady = true
                     break
@@ -222,32 +221,14 @@ object CommandExecutor {
                 return@launch
             }
 
-            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.PREPARING_ADB, null)
-
-            val (envResult, envError) = RpcClient.prepareEnvironment()
-            if (envError != null || envResult == null) {
-                state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, envError ?: "Failed to prepare ADB environment")
-                return@launch
-            }
-
-            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.DEPLOYING_GADGET, null)
-            val (pushStatus, pushError) = RpcClient.checkOrPushGadget()
-            if (pushError != null) {
-                state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, pushError)
-                return@launch
-            }
-
-            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.INJECTING_JDWP, null)
-            val (injectStatus, injectError) = RpcClient.injectJdwp(envResult.target, envResult.port, envResult.package_name)
-
-            when (injectStatus) {
-                "completed", "gadget_detected" -> {
-                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.SUCCESS, null)
-                }
-                else -> {
-                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, injectError ?: "Unknown error during JDWP injection")
-                }
-            }
+            state.sharedGadgetResult.value = Pair(GadgetInstallStatus.SUCCESS, null)
+//            when (injectStatus) {
+//                "completed", "gadget_detected" -> {
+//                }
+//                else -> {
+//                    state.sharedGadgetResult.value = Pair(GadgetInstallStatus.ERROR, injectError ?: "Unknown error during JDWP injection")
+//                }
+//            }
         }
     }
 }

