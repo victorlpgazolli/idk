@@ -86,10 +86,9 @@ fun main(args: Array<String>) {
     scope.launch {
         val logFile = "${CacheManager.cacheDir()}/bridge.log"
         while (state.running) {
-            val hasFinishedInstallingGadget = state.gadgetInstallStatus != GadgetInstallStatus.IDLE || state.gadgetInstallStatus != GadgetInstallStatus.SUCCESS
             val canShowBridgeLogs = when (state.mode) {
                 AppMode.DEBUG_ENTRYPOINT,
-                AppMode.DEFAULT -> hasFinishedInstallingGadget
+                AppMode.DEFAULT -> true
                 else -> false
             }
             if (canShowBridgeLogs) {
@@ -101,7 +100,7 @@ fun main(args: Array<String>) {
                         lines.add(buffer.toKString().trimEnd('\n', '\r'))
                     }
                     platform.posix.fclose(file)
-                    val newLogs = lines.takeLast(10)
+                    val newLogs = lines.takeLast(20)
                     if (newLogs != state.bridgeLogs && newLogs != state.sharedBridgeLogs.value) {
                         state.sharedBridgeLogs.value = newLogs
                     }
@@ -827,10 +826,7 @@ fun main(args: Array<String>) {
                 }
 
                 // Gadget install status polling
-                if (state.gadgetInstallStatus == GadgetInstallStatus.WAITING_BRIDGE ||
-                    state.gadgetInstallStatus == GadgetInstallStatus.PREPARING_ADB ||
-                    state.gadgetInstallStatus == GadgetInstallStatus.DEPLOYING_GADGET ||
-                    state.gadgetInstallStatus == GadgetInstallStatus.INJECTING_JDWP) {
+                if (state.gadgetInstallStatus == GadgetInstallStatus.WAITING_BRIDGE_SETUP) {
                     state.gadgetSpinnerFrame++
                     needsRender = true
                     val gadgetUpdate = state.sharedGadgetResult.value

@@ -332,7 +332,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         buf.appendBridgeLogBox(state.bridgeLogs)
     }
 
-    private fun StringBuilder.appendBridgeLogBox(logs: List<String>, logWidth: Int = 80) {
+    private fun StringBuilder.appendBridgeLogBox(logs: List<String>, logWidth: Int = 100) {
         append("\n")
 
         val topBorder = "╭" + "─".repeat(logWidth) + "╮"
@@ -343,7 +343,7 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         append("  │ ").append("Bridge Logs".padEnd(logWidth - 1)).append("│\n")
         append("  ├").append("─".repeat(logWidth)).append("┤\n")
 
-        for (i in 0 until 10) {
+        for (i in 0 until 20) {
             val logLine = if (i < logs.size) logs[i] else ""
             val truncatedLog = if (logLine.length > logWidth - 2) logLine.substring(0, logWidth - 5) + "..." else logLine
             append("  │ ")
@@ -378,19 +378,16 @@ ${K_PURPLE}      ▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀
         val status = state.gadgetInstallStatus
         val frame = ListRenderer.spinnerFrame(state.gadgetSpinnerFrame)
 
-        fun step(title: String, activeState: GadgetInstallStatus, pastStates: List<GadgetInstallStatus>): String {
+        fun step(title: String, activeState: GadgetInstallStatus): String {
             return when {
-                status in pastStates || status == GadgetInstallStatus.SUCCESS -> "   [${Ansi.GREEN}✓${Ansi.RESET}] ${Ansi.DIM}$title${Ansi.RESET}"
+                status == GadgetInstallStatus.SUCCESS -> "   [${Ansi.GREEN}✓${Ansi.RESET}] ${Ansi.DIM}$title${Ansi.RESET}"
                 status == activeState -> "   [${LIGHT_GRAY}$frame${Ansi.RESET}] ${Ansi.WHITE}$title${Ansi.RESET}"
                 else -> "   [ ] ${Ansi.DIM}$title${Ansi.RESET}"
             }
         }
 
         if (status != GadgetInstallStatus.IDLE) {
-            buf.append(step("Waiting for bridge...", GadgetInstallStatus.WAITING_BRIDGE, listOf(GadgetInstallStatus.PREPARING_ADB, GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
-            buf.append(step("Preparing adb environment", GadgetInstallStatus.PREPARING_ADB, listOf(GadgetInstallStatus.DEPLOYING_GADGET, GadgetInstallStatus.INJECTING_JDWP))).append("\n")
-            buf.append(step("Deploying frida-gadget.so", GadgetInstallStatus.DEPLOYING_GADGET, listOf(GadgetInstallStatus.INJECTING_JDWP))).append("\n")
-            buf.append(step("Injecting via JDWP...", GadgetInstallStatus.INJECTING_JDWP, emptyList())).append("\n")
+            buf.append(step("Waiting for bridge...", GadgetInstallStatus.WAITING_BRIDGE_SETUP)).append("\n")
             buf.appendBridgeLogBox(state.bridgeLogs)
         }
 

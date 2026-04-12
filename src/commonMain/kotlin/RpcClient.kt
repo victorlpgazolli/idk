@@ -587,6 +587,44 @@ object RpcClient {
         }
     }
 
+    suspend fun injectGadgetFromScratch(): Pair<String?, String?> {
+        return try {
+            val requestBody = JsonRpcRequestSimple(method = "injectGadgetFromScratch")
+
+            val response: HttpResponse = withTimeoutOrNull(5000) {
+                client.post("http://127.0.0.1:8080/rpc") {
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody)
+                }
+            } ?: return Pair(null, "RPC Timeout (5s)")
+
+
+            if (response.status.value in 200..299) {
+                val rpcResponse = response.body<JsonRpcGenericStatusResponse>()
+                if (rpcResponse.result != null) {
+                    Pair(rpcResponse.result.status, rpcResponse.result.error_message)
+                } else if (rpcResponse.error != null) {
+                    Pair(null, rpcResponse.error.message)
+                } else {
+                    Pair(null, "Unexpected empty response")
+                }
+            } else {
+                try {
+                    val rpcResponse = response.body<JsonRpcGenericStatusResponse>()
+                    if (rpcResponse.error != null) {
+                        Pair(null, rpcResponse.error.message)
+                    } else {
+                        Pair(null, "RPC HTTP Error: ${response.status.value}")
+                    }
+                } catch (e: Exception) {
+                    Pair(null, "RPC HTTP Error: ${response.status.value}")
+                }
+            }
+        } catch (e: Exception) {
+            Pair(null, "RPC Internal Error: ${e.message}")
+        }
+    }
+
     suspend fun toggleHook(className: String, methodSig: String, enable: Boolean): Boolean {
         val method = if (enable) "hookMethod" else "unhookMethod"
         return try {
